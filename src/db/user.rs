@@ -51,8 +51,8 @@ pub async fn record_watched(
         "INSERT INTO continue_watching (anime_id, last_episode, last_watched)
          VALUES (?, ?, ?)
          ON CONFLICT(anime_id) DO UPDATE SET
-             last_episode = excluded.last_episode,
-             last_watched = excluded.last_watched",
+             last_episode = MAX(continue_watching.last_episode, excluded.last_episode),
+             last_watched = MAX(continue_watching.last_watched, excluded.last_watched)",
     )
     .bind(anime_id)
     .bind(episode)
@@ -508,4 +508,14 @@ mod tests {
         let audio = get_audio_mode(&pool, 1).await.unwrap();
         assert_eq!(audio, Some(AudioMode::Dub));
     }
+    #[tokio::test]
+    async fn replay_does_not_reduce_resume_progress() {
+        let pool = setup().await;
+        record_watched(&pool, 1, 8, 100).await.unwrap();
+        record_watched(&pool, 1, 2, 200).await.unwrap();
+        let entry = get_continue_entry(&pool, 1).await.unwrap().unwrap();
+        assert_eq!(entry.last_episode, 8);
+        assert_eq!(entry.last_watched, 200);
+    }
+
 }

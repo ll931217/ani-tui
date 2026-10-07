@@ -2,6 +2,9 @@
 mod credentials;
 mod oauth;
 mod providers;
+mod remote;
+mod reconcile;
+mod bidirectional;
 use crate::db::cache::Anime;
 use anyhow::{bail, Result};
 use sqlx::SqlitePool;
@@ -81,10 +84,16 @@ pub async fn queue_progress(pool: &SqlitePool, anime: &Anime, episode: u32) -> V
     }
 }
 pub async fn retry_pending(pool: &SqlitePool, now: i64) -> Vec<String> {
+    sync_accounts(pool, now, false).await
+}
+pub async fn sync_accounts(pool: &SqlitePool, now: i64, force_import: bool) -> Vec<String> {
     let _guard = SERIAL.lock().await;
     let result = async {
         let _process_guard = credentials::lock().await?;
-        sync_pending(pool, now).await
+        tables(pool).await?;
+        let mut messages = bidirectional::pull(pool, now, force_import).await?;
+        messages.extend(sync_pending(pool, now).await?);
+        Ok::<_, anyhow::Error>(messages)
     }
     .await;
     match result {
@@ -234,7 +243,7 @@ pub async fn handle_cli(args: &[String], pool: &SqlitePool) -> Result<bool> {
             println!("Disconnected {provider}; pending updates removed. Revoke authorization on the provider website if desired.");
         }
         "retry" => {
-            for message in retry_pending(pool, now()).await {
+            for message in sync_accounts(pool, now(), true).await {
                 println!("{message}");
             }
         }
