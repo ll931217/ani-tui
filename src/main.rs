@@ -173,6 +173,16 @@ async fn main() -> anyhow::Result<()> {
         // Draw current screen
         terminal.draw(|frame| {
             let base_screen = state.current_base_screen();
+            let popup_size = match state.screen {
+                Screen::Search => Some((110, 42)),
+                Screen::Help => Some((94, 36)),
+                Screen::Settings => Some((76, 21)),
+                Screen::Setup => Some((84, 25)),
+                Screen::PlaybackOptions => Some((62, 18)),
+                Screen::PlaybackQuery => Some((72, (state.playback_queries.len() as u16).saturating_add(9).min(22))),
+                _ => None,
+            };
+            posters.set_occlusion(popup_size.map(|(w, h)| ui::theme::popup(frame.area(), w, h)));
             match state.screen {
                 Screen::Home => {
                     if state.is_loading {
@@ -181,13 +191,13 @@ async fn main() -> anyhow::Result<()> {
                         ui::home::render(frame, &mut state, &home_data, &mut posters);
                     }
                 }
-                Screen::Detail   => ui::detail::render(frame, &mut state),
+                Screen::Detail   => ui::detail::render(frame, &mut state, &mut posters),
                 Screen::PlaybackQuery => {
-                    ui::detail::render(frame, &mut state);
+                    ui::detail::render(frame, &mut state, &mut posters);
                     ui::play_query::render_overlay(frame, &state);
                 }
                 Screen::PlaybackOptions => {
-                    ui::detail::render(frame, &mut state);
+                    ui::detail::render(frame, &mut state, &mut posters);
                     ui::play_options::render_overlay(frame, &state);
                 }
                 Screen::Playback => ui::playback::render(frame, &state),
@@ -1175,7 +1185,7 @@ fn render_base_screen(
     posters: &mut ui::components::posters::PosterCache,
 ) {
     match base_screen {
-        Screen::Detail if state.selected_anime.is_some() => ui::detail::render(frame, state),
+        Screen::Detail if state.selected_anime.is_some() => ui::detail::render(frame, state, posters),
         _ => {
             if state.is_loading {
                 render_loading(frame);

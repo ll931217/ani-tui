@@ -66,7 +66,7 @@ fn render_featured(frame: &mut Frame, area: Rect, state: &mut AppState, anime: O
         anime.season_year.map(|year| year.to_string()).unwrap_or_else(|| "TBA".into()),
         anime.episodes.map(|episodes| format!("{episodes} episodes")).unwrap_or_else(|| "Airing".into()));
     let next = data.resume_next.get(&anime.id).map(|ep| format!("Resume E{ep}")).unwrap_or_else(|| "Start watching".into());
-    let watchlist = if data.watchlist.iter().any(|a| a.id == anime.id) { "- Remove from list" } else { "+ Watchlist" };
+    let watchlist = if data.watchlist.iter().any(|a| a.id == anime.id) { "+ Remove from list" } else { "+ Watchlist" };
     let watched = state.banner_progress.filter(|(id, _)| *id == anime.id).map(|(_, n)| n).unwrap_or(0);
     let status = if state.last_played_anime_id == Some(anime.id) { "  Playing in your player".into() }
         else if watched > 0 { format!("  {watched} watched") } else { String::new() };

@@ -260,15 +260,6 @@ impl AppState {
         }
     }
 
-    /// True if this terminal supports real images (Kitty / Sixel / Iterm2).
-    pub fn has_image_support(&self) -> bool {
-        use ratatui_image::picker::ProtocolType;
-        self.picker
-            .as_ref()
-            .map(|p| p.protocol_type != ProtocolType::Halfblocks)
-            .unwrap_or(false)
-    }
-
     /// Stop any currently running player.
     pub fn stop_player(&mut self) {
         if let Some(stop_tx) = self.player_stop.take() {

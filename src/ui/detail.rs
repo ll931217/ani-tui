@@ -14,15 +14,17 @@ use ratatui::{
 use crate::{
     db::cache::Anime,
     state::{AppState, DetailFocus},
-    ui::{components::cover::HalfblockCover, theme},
+    ui::{components::posters::PosterCache, theme},
 };
 
 /// Render the detail screen.
-pub fn render(frame: &mut Frame, state: &mut AppState) {
+pub fn render(frame: &mut Frame, state: &mut AppState, posters: &mut PosterCache) {
     let Some(anime) = state.selected_anime.clone() else {
         return;
     };
 
+    posters.set_overlay(state.screen != crate::state::Screen::Detail);
+    posters.poll();
     let area = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(theme::BG)), area);
     let area = area.inner(Margin {
@@ -63,7 +65,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         .split(area);
 
     frame.render_widget(hint, chunks[0]);
-    render_info(frame, chunks[1], state, &anime);
+    render_info(frame, chunks[1], state, &anime, posters);
     if related_height > 0 {
         render_related(frame, chunks[2], state);
     }
@@ -71,7 +73,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
 }
 
 /// Top section: cover + metadata side by side.
-fn render_info(frame: &mut Frame, area: Rect, state: &mut AppState, anime: &Anime) {
+fn render_info(frame: &mut Frame, area: Rect, state: &mut AppState, anime: &Anime, posters: &mut PosterCache) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -99,32 +101,7 @@ fn render_info(frame: &mut Frame, area: Rect, state: &mut AppState, anime: &Anim
         cover_frame
     };
 
-    // Cover: real image when terminal supports it, halfblock otherwise
-    if state.has_image_support() && state.cover_state.is_some() {
-        if let Some(ref mut cover) = state.cover_state {
-            let image_widget =
-                ratatui_image::StatefulImage::new(None).resize(ratatui_image::Resize::Fit(None));
-            frame.render_stateful_widget(image_widget, cover_inner, cover);
-        }
-    } else if state.has_image_support() && state.cover_anime_id == Some(anime.id) {
-        let label = if state.cover_failed_anime_id == Some(anime.id) {
-            "Cover unavailable"
-        } else {
-            "Loading cover..."
-        };
-        let loading = Paragraph::new(label)
-            .style(Style::default().fg(theme::MUTED).bg(theme::SURFACE))
-            .alignment(ratatui::layout::Alignment::Center);
-        frame.render_widget(loading, cover_inner);
-    } else {
-        frame.render_widget(
-            HalfblockCover {
-                anime_id: anime.id,
-                title: anime.display_title(),
-            },
-            cover_inner,
-        );
-    }
+    posters.render(frame, cover_inner, anime);
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)

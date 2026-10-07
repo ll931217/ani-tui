@@ -26,7 +26,7 @@ const MAX_BYTES: usize = 4 * 1024 * 1024;
 
 struct Entry {
     image: Option<DynamicImage>,
-    covers: HashMap<(u16, u16), Box<dyn StatefulProtocol>>,
+    covers: HashMap<(u16, u16, bool), Box<dyn StatefulProtocol>>,
     task: Option<JoinHandle<()>>,
     retry_at: Option<Instant>,
     touched: u64,
@@ -42,6 +42,7 @@ pub struct PosterCache {
     clock: u64,
     picker: Picker,
     overlay: bool,
+    occlusion: Option<Rect>,
 }
 
 impl PosterCache {
@@ -60,6 +61,7 @@ impl PosterCache {
             // Two square image pixels per terminal cell, using halfblocks only.
             picker: Picker::new((1, 2)),
             overlay: false,
+            occlusion: None,
         })
     }
 
@@ -73,6 +75,10 @@ impl PosterCache {
 
     pub fn set_overlay(&mut self, overlay: bool) {
         self.overlay = overlay;
+    }
+
+    pub fn set_occlusion(&mut self, area: Option<Rect>) {
+        self.occlusion = area;
     }
 
     /// Two title lines and a one-cell border surround a 2:3 portrait poster.
@@ -107,20 +113,13 @@ impl PosterCache {
         if let Some(entry) = self.entries.get_mut(&anime.id) {
             entry.touched = self.clock;
             if let Some(image) = &entry.image {
-                // Do not consume a Kitty transmission that an overlay Clear
-                // might discard before the terminal receives this frame.
-                if self.overlay && self.picker.protocol_type == ProtocolType::Kitty {
-                    frame.render_widget(
-                        HalfblockCover {
-                            anime_id: anime.id,
-                            title: anime.display_title(),
-                        },
-                        area,
-                    );
-                    return;
-                }
-                let size = (area.width, area.height);
-                if !entry.covers.contains_key(&size) && entry.covers.len() >= 2 {
+                // A partially hidden Kitty row cannot survive Clear: use actual
+                // image pixels there, keeping native posters everywhere else.
+                let obscured = self.overlay
+                    && self.occlusion.is_none_or(|popup| !area.intersection(popup).is_empty())
+                    && self.picker.protocol_type == ProtocolType::Kitty;
+                let size = (area.width, area.height, obscured);
+                if !entry.covers.contains_key(&size) && entry.covers.len() >= 4 {
                     entry.covers.clear();
                 }
                 let cover = entry.covers.entry(size).or_insert_with(|| {
@@ -130,13 +129,20 @@ impl PosterCache {
                         u32::from(area.height) * u32::from(fh).max(1),
                         image::imageops::FilterType::Triangle,
                     );
-                    self.picker.new_resize_protocol(fitted)
+                    if obscured {
+                        let mut fallback = Picker::new(self.picker.font_size);
+                        fallback.protocol_type = ProtocolType::Halfblocks;
+                        fallback.new_resize_protocol(fitted)
+                    } else {
+                        self.picker.new_resize_protocol(fitted)
+                    }
                 });
                 frame.render_stateful_widget(
                     StatefulImage::new(None).resize(Resize::Fit(None)),
                     area,
                     cover,
                 );
+                restore_kitty_colors(frame, area);
                 return;
             }
         }
@@ -191,6 +197,24 @@ impl PosterCache {
                 touched: self.clock,
             },
         );
+    }
+}
+
+/// Kitty embeds a color reset invisible to Crossterm's style tracker. Restore
+/// the cell colors without resetting modifiers or leaking terminal defaults.
+pub fn restore_kitty_colors(frame: &mut Frame, area: Rect) {
+    for y in area.top()..area.bottom() {
+        let Some(cell) = frame.buffer_mut().cell_mut((area.left(), y)) else { continue };
+        let Some(prefix) = cell.symbol().strip_suffix("\x1b[0m") else { continue };
+        if !prefix.contains('\u{10eeee}') { continue; }
+        let colors = if crossterm::style::Colored::ansi_color_disabled_memoized() {
+            "\x1b[39;49m".to_owned()
+        } else {
+            format!("{}", crossterm::style::SetColors(
+                crossterm::style::Colors::new(cell.fg.into(), cell.bg.into())))
+        };
+        let restored = format!("{prefix}{colors}");
+        cell.set_symbol(&restored);
     }
 }
 
@@ -359,7 +383,7 @@ mod tests {
                 frame.render_widget(ratatui::widgets::Clear, area);
             })
             .unwrap();
-        assert!(posters.entries[&1].covers.is_empty());
+        assert!(posters.entries[&1].covers.keys().all(|key| key.2));
         posters.set_overlay(false);
         terminal
             .draw(|frame| posters.render(frame, frame.area(), &anime))
@@ -370,6 +394,46 @@ mod tests {
             .content
             .iter()
             .any(|cell| cell.symbol().contains("\x1b_G")));
+    }
+
+
+    #[test]
+    fn kitty_reset_restores_colors_and_is_idempotent() {
+        let mut terminal = Terminal::new(TestBackend::new(3, 2)).unwrap();
+        terminal.draw(|frame| {
+            let cell = frame.buffer_mut().cell_mut((0, 0)).unwrap();
+            cell.set_symbol("\x1b_Gpayload\x1b\\\u{10eeee}\x1b[0m");
+            cell.set_style(ratatui::style::Style::default().fg(Color::Rgb(1,2,3)).bg(Color::Rgb(22,22,22)));
+            restore_kitty_colors(frame, Rect::new(0, 0, 1, 1));
+            let once = frame.buffer_mut().cell_mut((0,0)).unwrap().symbol().to_owned();
+            restore_kitty_colors(frame, Rect::new(0, 0, 1, 1));
+            assert_eq!(frame.buffer_mut().cell_mut((0,0)).unwrap().symbol(), once);
+            if crossterm::style::Colored::ansi_color_disabled_memoized() {
+                assert!(once.ends_with("\x1b[39;49m"));
+            } else {
+                assert!(once.contains("48;2;22;22;22"));
+            }
+            assert!(!once.ends_with("\x1b[0m"));
+        }).unwrap();
+    }
+
+    #[tokio::test]
+    async fn modal_keeps_visible_native_posters_and_obscured_image_pixels() {
+        let pool = crate::db::init(":memory:").await.unwrap();
+        let mut posters = PosterCache::new(pool).unwrap();
+        let mut picker = Picker::new((8,16));
+        picker.protocol_type = ProtocolType::Kitty;
+        posters.configure_terminal(&picker);
+        posters.entries.insert(1, Entry { image: decode(png()).await, covers: HashMap::new(), task: None, retry_at: None, touched: 0 });
+        posters.set_overlay(true);
+        posters.set_occlusion(Some(Rect::new(12,0,8,8)));
+        let mut terminal = Terminal::new(TestBackend::new(24,8)).unwrap();
+        terminal.draw(|frame| {
+            posters.render(frame, Rect::new(0,0,8,8), &anime());
+            posters.render(frame, Rect::new(12,0,8,8), &anime());
+        }).unwrap();
+        assert!(terminal.backend().buffer()[(0,0)].symbol().contains("\x1b_G"));
+        assert!((12..20).any(|x| (0..8).any(|y| terminal.backend().buffer()[(x,y)].fg == Color::Rgb(240,30,10))));
     }
 
     #[tokio::test]
