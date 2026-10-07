@@ -2,12 +2,13 @@
 name = "ani-tui-app"
 version = "1.0.6"
 edition = "2021"
+rust-version = "1.89"
 description = "A production-ready terminal UI for anime, powered by ani-cli"
 authors = ["Logan"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/logando-al/ani-tui"
-homepage = "https://github.com/logando-al/ani-tui"
+repository = "https://github.com/ll931217/ani-tui"
+homepage = "https://github.com/ll931217/ani-tui"
 keywords = ["anime", "tui", "terminal", "cli"]
 categories = ["command-line-utilities"]
 

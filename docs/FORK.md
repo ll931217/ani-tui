@@ -46,6 +46,14 @@ Resume waits for the airing check, and playback and next-episode actions stay wi
 
 These counts describe broadcast airings, not guaranteed stream availability on the current ani-cli provider or dub releases. Provider uploads and translations may lag behind the airing schedule.
 
+## Account tracking
+
+Optional AniList and MyAnimeList connections share the Amp dialog style and preserve background cover images. Press `a` from Home, Details, or Settings. See [account setup](ACCOUNTS.md) for registration and authorization.
+
+`src/tracking/` separates OAuth, credentials, provider requests, and queue orchestration. Launches persist identity-bound progress jobs in SQLite before background network requests. Retries run at startup, on subsequent launches, and on request. Updates never reduce remote progress. MyAnimeList IDs come from AniList metadata rather than title matching. Tokens live separately from preferences and are saved atomically with owner-only Unix permissions. Cross-process locking protects token refresh and account changes.
+
+Tracking records episode launches, not verified viewing completion. Sync is outbound; remote lists are not imported. Both providers can be connected independently.
+
 ## Build and checks
 
 ```bash

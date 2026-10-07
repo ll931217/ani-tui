@@ -17,6 +17,7 @@ It is built for local-first use: metadata is cached in SQLite, recommendations a
 - Home selection scrolls only when it crosses a visible row edge.
 - Episode navigation supports all four arrow keys and `h/j/k/l`, using the actual grid width and keeping selection visible on resize.
 - Airing shows list aired episodes separately from planned season totals; unreleased and unconfirmed episodes cannot be selected or launched.
+- Optional AniList and MyAnimeList accounts automatically track progress on episode launch, with durable offline retries.
 - Cached synopsis HTML is cleaned up, and detail layout preserves episode navigation on smaller terminals.
 
 See [the fork guide](docs/FORK.md) for rendering behavior, palette values, and implementation details.
@@ -66,6 +67,21 @@ Captured from this fork running in Kitty with native cover images.
 
 ![Amp detail screen with vertical episode navigation selecting E30](docs/screenshots/amp-detail.png)
 
+### Accounts
+
+![Amp account connections and progress dialog](docs/screenshots/amp-accounts.png)
+
+## Account Tracking
+
+Press `a` from Home, Details, or Settings to view account status and retry pending updates. Connect either or both providers from a separate terminal:
+
+```bash
+ani-tui accounts connect anilist YOUR_CLIENT_ID
+ani-tui accounts connect mal YOUR_CLIENT_ID
+```
+
+See [the account setup guide](docs/ACCOUNTS.md) for app registration, exact redirect URLs, authorization, and disconnect commands. Progress updates when playback launches; it does not wait for viewing completion. Failed updates persist locally and retry automatically.
+
 ## Prerequisites
 
 Before running `ani-tui`, make sure these runtime dependencies are installed:
@@ -99,7 +115,7 @@ If any command prints `not found`, install that dependency first and make sure i
 
 ## Requirements
 
-- Rust toolchain (`cargo`) for building from source
+- Rust 1.89 or newer (`cargo`) for building from source
 - The runtime prerequisites above
 
 ## Installation
@@ -153,6 +169,7 @@ On first run, `ani-tui` will open the in-app setup screen automatically if playb
 | `h` / `l` | Select cards left / right; scroll only past the visible row edges |
 | `Enter` | Open detail screen |
 | `/` | Search |
+| `a` | Accounts and progress |
 | `s` | Open settings |
 | `!` | Open setup / dependency checks |
 | `?` | Help overlay |
@@ -170,6 +187,7 @@ On first run, `ani-tui` will open the in-app setup screen automatically if playb
 | `+` | Toggle watchlist |
 | `n` | Play next episode |
 | `/` | Search |
+| `a` | Accounts and progress |
 | `s` | Open settings |
 | `!` | Open setup / dependency checks |
 | `?` | Help overlay |
@@ -189,6 +207,7 @@ On first run, `ani-tui` will open the in-app setup screen automatically if playb
 | `j` / `k` | Move between preference rows |
 | `h` / `l` | Change selected preference |
 | `Enter` | Advance the selected preference |
+| `a` | Accounts and progress |
 | `Esc` | Close |
 
 #### Setup
@@ -230,12 +249,18 @@ src/
     sync.rs       — TTL-based cache staleness
   services/
     sync.rs       — Orchestrates AniList → SQLite sync + heuristic recommendations
+  tracking/
+    mod.rs        — Account CLI, durable progress queue, identity-bound retries
+    oauth.rs      — AniList PIN and MyAnimeList native PKCE authorization
+    credentials.rs — Private token storage and cross-process locking
+    providers.rs  — Remote progress reads, updates, and MAL token refresh
   ui/
     home.rs       — Curated home screen
     detail.rs     — Anime detail + episode list
     playback.rs   — Log stream + controls
     search.rs     — Portrait result grid
     help.rs       — Help overlay + toast notifications
+    accounts.rs   — Account status and progress overlay
     settings.rs   — Settings overlay
     setup.rs      — Dependency / onboarding overlay
     theme.rs      — Shared Amp colors, dialog geometry, and readable synopsis text
