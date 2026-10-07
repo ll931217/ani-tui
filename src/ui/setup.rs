@@ -1,29 +1,22 @@
 //! Dependency / onboarding overlay.
 
+use crate::ui::theme;
+
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    layout::{Constraint, Direction, Layout},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Clear, Paragraph},
     Frame,
 };
 
 use crate::{config, state::AppState};
 
 pub fn render_overlay(frame: &mut Frame, state: &AppState, cfg: &config::Config) {
-    let area = centered_rect(66, 64, frame.area());
+    let area = theme::popup(frame.area(), 84, 25);
     frame.render_widget(Clear, area);
 
-    let block = Block::default()
-        .title(Span::styled(
-            " Playback Setup ",
-            Style::default()
-                .fg(Color::Rgb(180, 0, 255))
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-        .style(Style::default().bg(Color::Rgb(12, 12, 20)));
+    let block = theme::panel("Playback setup");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -42,15 +35,17 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState, cfg: &config::Config)
         Paragraph::new(vec![
             Line::from(Span::styled(
                 if ready {
-                    "Playback dependencies look ready."
+                    "You are ready to watch."
                 } else {
-                    "Playback needs a few external tools before it feels seamless."
+                    "Install the missing tools to start watching."
                 },
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                "Press r to refresh checks, s for settings, Esc to close.",
-                Style::default().fg(Color::Rgb(150, 150, 170)),
+                "r refresh checks  ·  s settings  ·  Esc close",
+                Style::default().fg(theme::MUTED),
             )),
         ]),
         rows[0],
@@ -58,7 +53,11 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState, cfg: &config::Config)
 
     let preferred = cfg.player.as_str();
     let lines = vec![
-        status_line("ani-cli", state.has_ani_cli, "Required for search + stream handoff"),
+        status_line(
+            "ani-cli",
+            state.has_ani_cli,
+            "Finds streams and launches your player",
+        ),
         status_line("mpv", state.has_mpv, "Default playback engine"),
         status_line("iina", state.has_iina, "macOS-native player option"),
         status_line("vlc", state.has_vlc, "Cross-platform fallback player"),
@@ -66,69 +65,74 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState, cfg: &config::Config)
         Line::from(vec![
             Span::styled(
                 " Preferred ",
-                Style::default().fg(Color::Black).bg(Color::Rgb(235, 235, 235)),
+                Style::default().fg(theme::BG).bg(theme::SUCCESS),
             ),
             Span::raw(" "),
             Span::styled(
                 preferred,
                 Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Rgb(60, 0, 100))
+                    .fg(theme::TEXT)
+                    .bg(theme::PANEL)
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
     ];
     frame.render_widget(
-        Paragraph::new(lines)
-            .block(Block::default().style(Style::default().bg(Color::Rgb(12, 12, 20)))),
+        Paragraph::new(lines).block(Block::default().style(Style::default().bg(theme::SURFACE))),
         rows[1],
     );
 
     let suggestions = Paragraph::new(vec![
         Line::from(Span::styled(
-            "Recommended macOS setup",
-            Style::default().fg(Color::Rgb(180, 0, 255)).add_modifier(Modifier::BOLD),
+            "Installation",
+            Style::default()
+                .fg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            "brew install curl grep aria2 ffmpeg git fzf yt-dlp",
-            Style::default().fg(Color::Rgb(205, 205, 215)),
+            if cfg!(target_os = "macos") {
+                "brew install curl grep aria2 ffmpeg git fzf yt-dlp"
+            } else {
+                "Install ani-cli and mpv with your package manager."
+            },
+            Style::default().fg(theme::MUTED),
         )),
         Line::from(Span::styled(
-            "brew install --cask iina",
-            Style::default().fg(Color::Rgb(205, 205, 215)),
+            if cfg!(target_os = "macos") {
+                "brew install --cask iina"
+            } else {
+                "Alternatives: vlc (Linux / Windows), iina (macOS)."
+            },
+            Style::default().fg(theme::MUTED),
         )),
         Line::from(Span::styled(
             "ani-cli must also be installed and available in PATH.",
-            Style::default().fg(Color::Rgb(150, 150, 170)),
+            Style::default().fg(theme::MUTED),
         )),
     ])
-    .block(Block::default().style(Style::default().bg(Color::Rgb(12, 12, 20))));
+    .block(Block::default().style(Style::default().bg(theme::SURFACE)));
     frame.render_widget(suggestions, rows[2]);
 
-    let footer = Paragraph::new(vec![
-        Line::from(vec![
-            Span::styled(
-                " Ready ",
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(if ready {
-                        Color::Rgb(235, 235, 235)
-                    } else {
-                        Color::Rgb(255, 190, 0)
-                    }),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                if ready {
-                    "You can close this and start watching."
-                } else {
-                    "Browsing works now. Playback will fail until the missing tools are installed."
-                },
-                Style::default().fg(Color::Rgb(190, 190, 205)),
-            ),
-        ]),
-    ])
-    .block(Block::default().style(Style::default().bg(Color::Rgb(12, 12, 20))));
+    let footer = Paragraph::new(vec![Line::from(vec![
+        Span::styled(
+            " Ready ",
+            Style::default().fg(theme::BG).bg(if ready {
+                theme::SUCCESS
+            } else {
+                theme::WARNING
+            }),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            if ready {
+                "You can close this and start watching."
+            } else {
+                "Browsing is ready. Install the missing tools for playback."
+            },
+            Style::default().fg(theme::MUTED),
+        ),
+    ])])
+    .block(Block::default().style(Style::default().bg(theme::SURFACE)));
     frame.render_widget(footer, rows[3]);
 }
 
@@ -137,36 +141,18 @@ fn status_line(name: &str, ok: bool, note: &str) -> Line<'static> {
         Span::styled(
             if ok { " OK " } else { " Missing " },
             Style::default()
-                .fg(Color::Black)
-                .bg(if ok { Color::Rgb(235, 235, 235) } else { Color::Rgb(255, 190, 0) })
+                .fg(theme::BG)
+                .bg(if ok { theme::SUCCESS } else { theme::WARNING })
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
         Span::styled(
             format!("{name:<8}"),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
-        Span::styled(note.to_string(), Style::default().fg(Color::Rgb(165, 165, 185))),
+        Span::styled(note.to_string(), Style::default().fg(theme::MUTED)),
     ])
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let vert = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vert[1])[1]
 }

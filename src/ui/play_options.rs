@@ -1,10 +1,12 @@
 //! Playback options overlay.
 
+use crate::ui::theme;
+
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    layout::{Constraint, Direction, Layout},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
@@ -14,17 +16,20 @@ const QUALITY_LABELS: [&str; 5] = ["best", "1080p", "720p", "480p", "360p"];
 
 /// Render the playback options overlay on top of the detail screen.
 pub fn render_overlay(frame: &mut Frame, state: &AppState) {
-    let area = centered_rect(56, 58, frame.area());
+    let area = theme::popup(frame.area(), 62, 18);
     frame.render_widget(Clear, area);
+    let panel = theme::panel("Playback options");
+    let inner = panel.inner(area);
+    frame.render_widget(panel, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4),
+            Constraint::Length(3),
             Constraint::Min(0),
             Constraint::Length(2),
         ])
-        .split(area);
+        .split(inner);
 
     let can_dub = state
         .selected_anime
@@ -41,32 +46,22 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState) {
     let header = Paragraph::new(vec![
         Line::from(Span::styled(
             "Choose quality before launch",
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
-            Span::styled(" Audio ", Style::default().fg(Color::Black).bg(Color::White)),
+            Span::styled("Audio", Style::default().fg(theme::MUTED)),
             Span::raw(" "),
             Span::styled(
                 audio_label,
                 Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Rgb(60, 0, 100))
+                    .fg(theme::TEXT)
+                    .bg(theme::PANEL)
                     .add_modifier(Modifier::BOLD),
             ),
         ]),
-    ])
-    .block(
-        Block::default()
-            .title(Span::styled(
-                " ▶ Playback Options ",
-                Style::default()
-                    .fg(Color::Rgb(180, 0, 255))
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-            .style(Style::default().bg(Color::Rgb(15, 15, 22))),
-    );
+    ]);
     frame.render_widget(header, chunks[0]);
 
     let items: Vec<ListItem> = QUALITY_LABELS
@@ -75,62 +70,40 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState) {
         .map(|(i, quality)| {
             let style = if i == state.playback_quality_cursor {
                 Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Rgb(60, 0, 100))
+                    .fg(theme::TEXT)
+                    .bg(theme::PANEL)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Rgb(205, 205, 215))
+                Style::default().fg(theme::MUTED)
             };
-            let prefix = if i == state.playback_quality_cursor { "▶ " } else { "  " };
-            ListItem::new(Line::from(Span::styled(format!("{prefix}{quality}"), style)))
+            let prefix = if i == state.playback_quality_cursor {
+                "▶ "
+            } else {
+                "  "
+            };
+            ListItem::new(Line::from(Span::styled(
+                format!("{prefix}{quality}"),
+                style,
+            )))
         })
         .collect();
 
     let mut list_state = ListState::default().with_selected(Some(state.playback_quality_cursor));
-    frame.render_stateful_widget(
-        List::new(items).block(
-            Block::default()
-                .borders(Borders::LEFT | Borders::RIGHT)
-                .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-                .style(Style::default().bg(Color::Rgb(12, 12, 18))),
-        ),
-        chunks[1],
-        &mut list_state,
-    );
+    frame.render_stateful_widget(List::new(items), chunks[1], &mut list_state);
 
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" Enter ", Style::default().fg(Color::Black).bg(Color::White)),
-        Span::raw(" Launch  "),
-        Span::styled(" h/l ", Style::default().fg(Color::Black).bg(Color::Rgb(180, 0, 255))),
-        Span::raw(if can_dub { " Toggle audio  " } else { " Audio locked  " }),
-        Span::styled(" j/k ", Style::default().fg(Color::Black).bg(Color::Rgb(180, 0, 255))),
-        Span::raw(" Quality"),
-    ]))
-    .block(
-        Block::default()
-            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-            .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-            .style(Style::default().bg(Color::Rgb(12, 12, 18))),
-    );
+    let footer = Paragraph::new(vec![
+        Line::from(Span::styled(
+            "Enter play  ·  j/k quality  ·  Esc cancel",
+            Style::default().fg(theme::MUTED),
+        )),
+        Line::from(Span::styled(
+            if can_dub {
+                "h/l switch between sub and dub"
+            } else {
+                "This title is available with subtitles only"
+            },
+            Style::default().fg(theme::MUTED),
+        )),
+    ]);
     frame.render_widget(footer, chunks[2]);
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }

@@ -1,10 +1,12 @@
 //! Settings overlay — persistent global preferences.
 
+use crate::ui::theme;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Clear, Paragraph},
     Frame,
 };
 
@@ -15,19 +17,10 @@ const QUALITY_CHOICES: [&str; 5] = ["best", "1080p", "720p", "480p", "360p"];
 const AUDIO_CHOICES: [&str; 2] = ["sub", "dub"];
 
 pub fn render_overlay(frame: &mut Frame, state: &AppState, cfg: &config::Config) {
-    let area = centered_rect(62, 62, frame.area());
+    let area = theme::popup(frame.area(), 76, 21);
     frame.render_widget(Clear, area);
 
-    let block = Block::default()
-        .title(Span::styled(
-            " Settings ",
-            Style::default()
-                .fg(Color::Rgb(180, 0, 255))
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-        .style(Style::default().bg(Color::Rgb(12, 12, 20)));
+    let block = theme::panel("Settings");
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -45,20 +38,43 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState, cfg: &config::Config)
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(
-                "Persisted defaults for every new playback session",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                "Your playback defaults",
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                "Use j/k to focus a row, h/l to change it, Esc to close.",
-                Style::default().fg(Color::Rgb(150, 150, 170)),
+                "j/k select  ·  h/l or Enter change  ·  Esc close",
+                Style::default().fg(theme::MUTED),
             )),
         ]),
         rows[0],
     );
 
-    render_setting_row(rows[1], "Player", &PLAYER_CHOICES, player_index(&cfg.player), state.settings_cursor == 0, frame);
-    render_setting_row(rows[2], "Quality", &QUALITY_CHOICES, quality_index(&cfg.quality), state.settings_cursor == 1, frame);
-    render_setting_row(rows[3], "Audio", &AUDIO_CHOICES, audio_index(&cfg.audio_mode), state.settings_cursor == 2, frame);
+    render_setting_row(
+        rows[1],
+        "Player",
+        &PLAYER_CHOICES,
+        player_index(&cfg.player),
+        state.settings_cursor == 0,
+        frame,
+    );
+    render_setting_row(
+        rows[2],
+        "Quality",
+        &QUALITY_CHOICES,
+        quality_index(&cfg.quality),
+        state.settings_cursor == 1,
+        frame,
+    );
+    render_setting_row(
+        rows[3],
+        "Audio",
+        &AUDIO_CHOICES,
+        audio_index(&cfg.audio_mode),
+        state.settings_cursor == 2,
+        frame,
+    );
 
     let preferred_ready = match cfg.player {
         config::Player::Mpv => state.has_mpv || state.has_iina,
@@ -70,11 +86,11 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState, cfg: &config::Config)
             Span::styled(
                 " Status ",
                 Style::default()
-                    .fg(Color::Black)
+                    .fg(theme::BG)
                     .bg(if preferred_ready {
-                        Color::Rgb(235, 235, 235)
+                        theme::SUCCESS
                     } else {
-                        Color::Rgb(255, 190, 0)
+                        theme::WARNING
                     })
                     .add_modifier(Modifier::BOLD),
             ),
@@ -85,16 +101,16 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState, cfg: &config::Config)
                 } else {
                     "Current player missing, fallback may be used"
                 },
-                Style::default().fg(Color::Rgb(195, 195, 210)),
+                Style::default().fg(theme::MUTED),
             ),
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "Changes save immediately to config.toml",
-            Style::default().fg(Color::Rgb(120, 120, 140)),
+            "Changes are saved automatically.",
+            Style::default().fg(theme::MUTED),
         )),
     ])
-    .block(Block::default().style(Style::default().bg(Color::Rgb(12, 12, 20))));
+    .block(Block::default().style(Style::default().bg(theme::SURFACE)));
     frame.render_widget(footer, rows[4]);
 }
 
@@ -113,10 +129,10 @@ fn render_setting_row(
 
     let label_style = if focused {
         Style::default()
-            .fg(Color::Rgb(180, 0, 255))
+            .fg(theme::ACCENT)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Rgb(170, 170, 185))
+        Style::default().fg(theme::MUTED)
     };
     frame.render_widget(
         Paragraph::new(Span::styled(format!("{label}:"), label_style)),
@@ -132,19 +148,31 @@ fn render_setting_row(
         spans.push(Span::styled(
             format!(" {} ", value),
             Style::default()
-                .fg(if active { Color::Black } else { Color::Rgb(220, 220, 230) })
-                .bg(if active {
-                    if focused { Color::Rgb(180, 0, 255) } else { Color::Rgb(235, 235, 235) }
+                .fg(if active && focused {
+                    theme::BG
                 } else {
-                    Color::Rgb(30, 30, 42)
+                    theme::TEXT
                 })
-                .add_modifier(if active { Modifier::BOLD } else { Modifier::empty() }),
+                .bg(if active {
+                    if focused {
+                        theme::ACCENT
+                    } else {
+                        theme::PANEL
+                    }
+                } else {
+                    theme::SURFACE
+                })
+                .add_modifier(if active {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
         ));
     }
 
     frame.render_widget(
         Paragraph::new(Line::from(spans))
-            .block(Block::default().style(Style::default().bg(Color::Rgb(12, 12, 20)))),
+            .block(Block::default().style(Style::default().bg(theme::SURFACE))),
         row[1],
     );
 }
@@ -172,24 +200,4 @@ fn audio_index(audio: &config::AudioMode) -> usize {
         config::AudioMode::Sub => 0,
         config::AudioMode::Dub => 1,
     }
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let vert = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vert[1])[1]
 }

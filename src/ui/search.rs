@@ -1,10 +1,12 @@
 //! Search overlay — floats centered over the current screen.
 
+use crate::ui::theme;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
@@ -12,19 +14,21 @@ use crate::state::AppState;
 
 /// Render the search overlay on top of whatever screen is below.
 pub fn render_overlay(frame: &mut Frame, state: &AppState) {
-    let area    = centered_rect(60, 50, frame.area());
+    let area = theme::popup(frame.area(), 90, 26);
 
-    // Clear the background area so it's not transparent
     frame.render_widget(Clear, area);
+    let panel = theme::panel("Search anime");
+    let inner = panel.inner(area);
+    frame.render_widget(panel, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // input box
-            Constraint::Length(6), // focused result preview
+            Constraint::Length(3), // query and shortcuts
+            Constraint::Length(7), // focused result preview
             Constraint::Min(0),    // results list
         ])
-        .split(area);
+        .split(inner);
 
     render_input(frame, chunks[0], state);
     render_preview(frame, chunks[1], state);
@@ -33,45 +37,31 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState) {
 
 /// The search input box.
 fn render_input(frame: &mut Frame, area: Rect, state: &AppState) {
-    let query_display = format!("{}_", state.search_query); // cursor indicator
-
-    let input = Paragraph::new(Span::styled(
-        &query_display,
-        Style::default().fg(Color::White),
-    ))
-    .block(
-        Block::default()
-            .title(Span::styled(
-                " 🔍 Search Anime ",
-                Style::default()
-                    .fg(Color::Rgb(180, 0, 255))
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-            .style(Style::default().bg(Color::Rgb(15, 15, 22))),
-    );
+    let input = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled(" / ", Style::default().fg(theme::BG).bg(theme::ACCENT)),
+            Span::styled(
+                format!("  {}▏", state.search_query),
+                Style::default().fg(theme::TEXT),
+            ),
+        ]),
+        Line::from(Span::styled(
+            "Type to search  ·  ↑/↓ browse  ·  Enter open  ·  Esc close",
+            Style::default().fg(theme::MUTED),
+        )),
+    ]);
     frame.render_widget(input, area);
 }
 
 /// The results list below the input.
 fn render_results(frame: &mut Frame, area: Rect, state: &AppState) {
-    let block = Block::default()
-        .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-        .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-        .style(Style::default().bg(Color::Rgb(12, 12, 18)));
-
     if state.search_results.is_empty() {
         let msg = if state.search_query.is_empty() {
             "Type to search anime..."
         } else {
             "No results found."
         };
-        let para = Paragraph::new(Span::styled(
-            msg,
-            Style::default().fg(Color::Rgb(100, 100, 120)),
-        ))
-        .block(block);
+        let para = Paragraph::new(Span::styled(msg, Style::default().fg(theme::MUTED)));
         frame.render_widget(para, area);
         return;
     }
@@ -92,50 +82,37 @@ fn render_results(frame: &mut Frame, area: Rect, state: &AppState) {
 
             let style = if i == state.search_cursor {
                 Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Rgb(60, 0, 100))
+                    .fg(theme::ACCENT)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Rgb(200, 200, 200))
+                Style::default().fg(theme::TEXT)
             };
 
-            let prefix = if i == state.search_cursor { "▶ " } else { "  " };
+            let prefix = if i == state.search_cursor {
+                "▶ "
+            } else {
+                "  "
+            };
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{}{}", prefix, anime.display_title()), style),
                 Span::styled(
                     format!("  ★{}  {}", score, eps),
-                    Style::default().fg(Color::Rgb(120, 120, 140)),
+                    Style::default().fg(theme::MUTED),
                 ),
             ]))
         })
         .collect();
 
     let mut list_state = ListState::default().with_selected(Some(state.search_cursor));
-    frame.render_stateful_widget(
-        List::new(items).block(block),
-        area,
-        &mut list_state,
-    );
+    frame.render_stateful_widget(List::new(items), area, &mut list_state);
 }
 
 fn render_preview(frame: &mut Frame, area: Rect, state: &AppState) {
-    let block = Block::default()
-        .title(Span::styled(
-            " Focused Result ",
-            Style::default()
-                .fg(Color::Rgb(220, 220, 220))
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-        .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-        .style(Style::default().bg(Color::Rgb(12, 12, 18)));
-
     let Some(anime) = state.search_results.get(state.search_cursor) else {
         let empty = Paragraph::new(Span::styled(
             "Use ↑/↓ to focus a result.",
-            Style::default().fg(Color::Rgb(100, 100, 120)),
-        ))
-        .block(block);
+            Style::default().fg(theme::MUTED),
+        ));
         frame.render_widget(empty, area);
         return;
     };
@@ -161,44 +138,18 @@ fn render_preview(frame: &mut Frame, area: Rect, state: &AppState) {
     let preview = Paragraph::new(vec![
         Line::from(Span::styled(
             anime.display_title(),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            format!("{}  |  {}  |  {}", score, eps, format),
-            Style::default().fg(Color::Rgb(180, 0, 255)),
+            format!("{}  ·  {}  ·  {}", score, eps, format),
+            Style::default().fg(theme::ACCENT),
         )),
-        Line::from(Span::styled(
-            status,
-            Style::default().fg(Color::Rgb(150, 150, 170)),
-        )),
+        Line::from(Span::styled(status, Style::default().fg(theme::MUTED))),
         Line::from(""),
-        Line::from(Span::styled(
-            desc,
-            Style::default().fg(Color::Rgb(205, 205, 215)),
-        )),
+        Line::from(Span::styled(desc, Style::default().fg(theme::MUTED))),
     ])
-    .block(block)
     .wrap(ratatui::widgets::Wrap { trim: true });
     frame.render_widget(preview, area);
-}
-
-/// Returns a Rect centered on `r` with given width% and height%.
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }
