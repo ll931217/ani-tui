@@ -366,32 +366,35 @@ pub async fn sync_all(
     stable_ttl:       u64,
     now:              i64,
 ) -> Result<HomeData> {
-    // Run all syncs concurrently — each is independent
-    let (trending, popular, top_rated, seasonal, continue_entries, continue_watching, watchlist) = tokio::join!(
-        sync_category(pool, client, meta::TRENDING,  trending_ttl, now),
-        sync_category(pool, client, meta::POPULAR,   stable_ttl,   now),
-        sync_category(pool, client, meta::TOP_RATED, stable_ttl,   now),
-        sync_category(pool, client, meta::SEASONAL,  trending_ttl, now),
-        user::get_continue_watching(pool),
-        load_continue_watching(pool),
-        load_watchlist(pool),
+    let (trending, popular, top_rated, seasonal) = tokio::join!(
+        sync_category(pool, client, meta::TRENDING, trending_ttl, now),
+        sync_category(pool, client, meta::POPULAR, stable_ttl, now),
+        sync_category(pool, client, meta::TOP_RATED, stable_ttl, now),
+        sync_category(pool, client, meta::SEASONAL, trending_ttl, now),
     );
+    let mut data = HomeData::empty();
+    data.trending = trending.unwrap_or_default();
+    data.popular = popular.unwrap_or_default();
+    data.top_rated = top_rated.unwrap_or_default();
+    data.seasonal = seasonal.unwrap_or_default();
+    data.featured = data.trending.first().cloned();
+    refresh_user_data(pool, &mut data).await?;
+    Ok(data)
+}
 
-    let trending          = trending.unwrap_or_default();
-    let popular           = popular.unwrap_or_default();
-    let top_rated         = top_rated.unwrap_or_default();
-    let seasonal          = seasonal.unwrap_or_default();
-    let continue_entries  = continue_entries.unwrap_or_default();
-    let continue_watching = continue_watching.unwrap_or_default();
-    let watchlist         = watchlist.unwrap_or_default();
-    let featured          = trending.first().cloned();
+/// Refresh local progress independently of category network requests.
+/// Re-read after receiving background categories so stale snapshots cannot undo imports.
+pub async fn refresh_user_data(pool: &SqlitePool, data: &mut HomeData) -> Result<()> {
+    let continue_entries = user::get_continue_watching(pool).await?;
+    let continue_watching = load_continue_watching(pool).await?;
+    let watchlist = load_watchlist(pool).await?;
     let (recommended, recommended_reasons) = build_recommendations(
         &continue_watching,
         &watchlist,
-        &trending,
-        &popular,
-        &top_rated,
-        &seasonal,
+        &data.trending,
+        &data.popular,
+        &data.top_rated,
+        &data.seasonal,
     );
     let resume_next: HashMap<i64, u32> = continue_entries
         .into_iter()
@@ -415,43 +418,37 @@ pub async fn sync_all(
         &continue_watching,
         &watchlist,
         &recommended,
-        &trending,
-        &popular,
-        &top_rated,
-        &seasonal,
+        &data.trending,
+        &data.popular,
+        &data.top_rated,
+        &data.seasonal,
     ] {
         all_ids.extend(row.iter().map(|anime| anime.id));
     }
     all_ids.sort_unstable();
     all_ids.dedup();
-    let watched_counts = user::get_watched_counts(pool, &all_ids).await.unwrap_or_default();
+    let watched_counts = user::get_watched_counts(pool, &all_ids).await?;
     let progress_labels = build_progress_labels(
         &[
             &continue_watching,
             &watchlist,
             &recommended,
-            &trending,
-            &popular,
-            &top_rated,
-            &seasonal,
+            &data.trending,
+            &data.popular,
+            &data.top_rated,
+            &data.seasonal,
         ],
         &watched_counts,
         &resume_next,
     );
 
-    Ok(HomeData {
-        featured,
-        continue_watching,
-        watchlist,
-        recommended,
-        recommended_reasons,
-        progress_labels,
-        resume_next,
-        trending,
-        popular,
-        top_rated,
-        seasonal,
-    })
+    data.continue_watching = continue_watching;
+    data.watchlist = watchlist;
+    data.recommended = recommended;
+    data.recommended_reasons = recommended_reasons;
+    data.resume_next = resume_next;
+    data.progress_labels = progress_labels;
+    Ok(())
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -700,4 +697,21 @@ mod tests {
 
         assert!(recommended.is_empty());
     }
+    #[tokio::test]
+    async fn progress_refresh_repairs_stale_home_snapshots_without_network() {
+        let pool = crate::db::init(":memory:").await.unwrap();
+        let anime = make_anime(&pool, 1);
+        cache::upsert_anime(&pool, &anime).await.unwrap();
+        let mut stale = HomeData::empty();
+        stale.trending.push(anime);
+        user::record_watched(&pool, 1, 4, 100).await.unwrap();
+        refresh_user_data(&pool, &mut stale).await.unwrap();
+        assert_eq!(stale.continue_watching[0].id, 1);
+        assert_eq!(stale.resume_next.get(&1), Some(&5));
+        assert_eq!(stale.progress_labels.get(&1).map(String::as_str), Some("E5 next"));
+        user::record_watched(&pool, 1, 8, 200).await.unwrap();
+        refresh_user_data(&pool, &mut stale).await.unwrap();
+        assert_eq!(stale.resume_next.get(&1), Some(&9));
+    }
+
 }

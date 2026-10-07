@@ -18,7 +18,7 @@ pub fn render_overlay(frame: &mut Frame, state: &mut AppState) {
     let inner = panel.inner(area);
     frame.render_widget(panel, area);
     let mut lines = vec![
-        Line::from(Span::styled("Track each episode when playback launches", Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("Two-way progress · TUI, AniList & MyAnimeList", Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD))),
         Line::from(Span::styled("Local playback keeps working when a provider is offline.", Style::default().fg(theme::MUTED))),
         Line::from(""),
     ];
@@ -43,7 +43,7 @@ pub fn render_overlay(frame: &mut Frame, state: &mut AppState) {
         Line::from(Span::styled(if state.tracking_jobs > 0 { "Syncing progress in the background…" } else { "Progress sync" }, Style::default().fg(theme::TEXT))),
     ]);
     if state.tracking_messages.is_empty() {
-        lines.push(Line::from(Span::styled("Connected accounts update automatically on episode launch.", Style::default().fg(theme::MUTED))));
+        lines.push(Line::from(Span::styled("Import on startup and every 5 minutes; launches sync outward.", Style::default().fg(theme::MUTED))));
     } else {
         for message in state.tracking_messages.iter().rev().take(3).rev() {
             lines.push(Line::from(Span::styled(message, Style::default().fg(theme::MUTED))));
@@ -54,5 +54,5 @@ pub fn render_overlay(frame: &mut Frame, state: &mut AppState) {
     let max_scroll = body.line_count(chunks[0].width).saturating_sub(usize::from(chunks[0].height)).min(usize::from(u16::MAX)) as u16;
     state.accounts_scroll = state.accounts_scroll.min(max_scroll);
     frame.render_widget(body.scroll((state.accounts_scroll, 0)), chunks[0]);
-    frame.render_widget(Paragraph::new(vec![Line::from("j/k Scroll · r Refresh / retry"), Line::from("Esc Close")]).style(Style::default().fg(theme::ACCENT).bg(theme::SURFACE)), chunks[1]);
+    frame.render_widget(Paragraph::new(vec![Line::from("j/k Scroll · r Sync both ways"), Line::from("Esc Close")]).style(Style::default().fg(theme::ACCENT).bg(theme::SURFACE)), chunks[1]);
 }

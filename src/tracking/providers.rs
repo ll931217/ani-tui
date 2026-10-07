@@ -207,13 +207,17 @@ pub async fn sync(
                 }
                 .to_string(),
             ),
-            ("num_episodes_watched", progress.to_string()),
+            ("num_watched_episodes", progress.to_string()),
         ])
         .send()
         .await
         .map_err(|_| anyhow::anyhow!("MyAnimeList progress update failed"))?;
     if !response.status().is_success() {
         bail!("MyAnimeList update failed ({})", response.status().as_u16());
+    }
+    let updated: Value = response.json().await.context("Invalid MyAnimeList update response")?;
+    if remote_progress(&updated, "num_episodes_watched")? < progress {
+        bail!("MyAnimeList did not confirm the requested progress");
     }
     Ok(())
 }

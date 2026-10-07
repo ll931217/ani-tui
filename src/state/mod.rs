@@ -202,6 +202,7 @@ pub struct AppState {
     pub tracking_accounts: Vec<crate::tracking::AccountSummary>,
     pub tracking_messages: Vec<String>,
     pub tracking_jobs: usize,
+    pub tracking_sync_again: bool,
     pub accounts_scroll: u16,
 }
 
@@ -262,6 +263,7 @@ impl AppState {
             tracking_accounts: Vec::new(),
             tracking_messages: Vec::new(),
             tracking_jobs: 0,
+            tracking_sync_again: false,
             accounts_scroll: 0,
         }
     }

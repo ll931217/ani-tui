@@ -91,7 +91,8 @@ async fn main() -> anyhow::Result<()> {
         state.picker = Some(picker);
     }
 
-    retry_tracking(&mut state, &pool, &tx);
+    retry_tracking(&mut state, &pool, &tx, true);
+    let mut last_tracking_poll = std::time::Instant::now();
 
     // ── Startup: kick off background sync ─────────────────────────────────────
     {
@@ -121,7 +122,10 @@ async fn main() -> anyhow::Result<()> {
         while let Ok(msg) = rx.try_recv() {
             match msg {
                 AppMessage::HomeData(data) => {
+                    let selected = home_selections(&state, &home_data);
                     home_data        = *data;
+                    restore_home_selections(&mut state, &home_data, &selected);
+                    refresh_tracking_views(&mut state, &mut home_data, &pool).await;
                     home_data.normalize_selection(&mut state);
                     state.is_loading = false;
                     refresh_home_cover(&mut state, &home_data, &pool, &tx);
@@ -137,9 +141,14 @@ async fn main() -> anyhow::Result<()> {
                 AppMessage::TrackingResult(messages) => {
                     state.tracking_jobs = state.tracking_jobs.saturating_sub(1);
                     state.tracking_accounts = tracking::account_summary();
+                    refresh_tracking_views(&mut state, &mut home_data, &pool).await;
+                    refresh_home_cover(&mut state, &home_data, &pool, &tx);
                     if !messages.is_empty() {
                         if let Some(message) = messages.last() { state.show_toast(message.clone(), unix_now()); }
                         state.tracking_messages = messages;
+                    }
+                    if std::mem::take(&mut state.tracking_sync_again) {
+                        retry_tracking(&mut state, &pool, &tx, false);
                     }
                 }
                 AppMessage::PlaybackLog(line) => {
@@ -190,6 +199,10 @@ async fn main() -> anyhow::Result<()> {
         }
 
         // Resolve active toast before entering draw (avoids mutable borrow conflict)
+        if last_tracking_poll.elapsed() >= Duration::from_secs(300) && state.tracking_jobs == 0 {
+            last_tracking_poll = std::time::Instant::now();
+            retry_tracking(&mut state, &pool, &tx, true);
+        }
         let now       = unix_now();
         let toast_msg = state.active_toast(now).map(|s| s.to_string());
 
@@ -317,21 +330,59 @@ async fn handle_key(
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('a') => state.go_back(),
             KeyCode::Char('r') => {
                 state.tracking_accounts = tracking::account_summary();
-                if state.tracking_jobs == 0 { retry_tracking(state, pool, tx); }
+                if state.tracking_jobs == 0 { retry_tracking(state, pool, tx, true); }
             }
             _ => {}
         },
     }
 }
 
-fn retry_tracking(state: &mut AppState, pool: &sqlx::SqlitePool, tx: &tokio::sync::mpsc::Sender<AppMessage>) {
+fn retry_tracking(state: &mut AppState, pool: &sqlx::SqlitePool, tx: &tokio::sync::mpsc::Sender<AppMessage>, force_import: bool) {
+    if state.tracking_jobs > 0 { state.tracking_sync_again = true; return; }
     state.tracking_jobs += 1;
     let pool = pool.clone();
     let tx = tx.clone();
     tokio::spawn(async move {
-        let result = tracking::retry_pending(&pool, unix_now()).await;
+        let result = if force_import { tracking::sync_accounts(&pool, unix_now(), true).await } else { tracking::retry_pending(&pool, unix_now()).await };
         let _ = tx.send(AppMessage::TrackingResult(result)).await;
     });
+}
+
+fn home_rows(home: &ui::home::HomeData) -> [(&str, &[db::cache::Anime]); 7] {
+    [("continue_watching", &home.continue_watching), ("watchlist", &home.watchlist),
+     ("recommended", &home.recommended), ("trending", &home.trending),
+     ("popular", &home.popular), ("top_rated", &home.top_rated), ("seasonal", &home.seasonal)]
+}
+fn home_selections(state: &AppState, home: &ui::home::HomeData) -> std::collections::HashMap<String, i64> {
+    home_rows(home).into_iter().filter_map(|(key, row)| row.get(state.row_cursor(key)).map(|anime| (key.to_owned(), anime.id))).collect()
+}
+fn restore_home_selections(state: &mut AppState, home: &ui::home::HomeData, selected: &std::collections::HashMap<String, i64>) {
+    for (key, row) in home_rows(home) {
+        if let Some(index) = selected.get(key).and_then(|id| row.iter().position(|anime| anime.id == *id)) {
+            state.row_cursors.insert(key.into(), index);
+        }
+        state.normalize_row(key, row.len());
+    }
+}
+
+async fn refresh_tracking_views(state: &mut AppState, home: &mut ui::home::HomeData, pool: &sqlx::SqlitePool) {
+    let selected = home_selections(state, home);
+    if services::sync::refresh_user_data(pool, home).await.is_err() {
+        state.show_toast("Could not refresh local progress", unix_now());
+        return;
+    }
+    restore_home_selections(state, home, &selected);
+    if let Some(id) = state.selected_anime.as_ref().map(|anime| anime.id) {
+        if let Ok(episodes) = db::user::get_watched_episodes(pool, id).await {
+            // Preserve the user's current episode cursor and scroll position.
+            state.watched_episodes = episodes.into_iter().map(|episode| episode as u32).collect();
+        }
+    }
+    if let Some(id) = state.cover_anime_id {
+        if let Ok(episodes) = db::user::get_watched_episodes(pool, id).await {
+            state.banner_progress = Some((id, episodes.len()));
+        }
+    }
 }
 
 // ── Home screen ───────────────────────────────────────────────────────────────
@@ -1126,7 +1177,7 @@ async fn start_playback(
         if let Some(message) = messages.first() {
             state.show_toast(message.clone(), now);
         }
-        retry_tracking(state, pool, tx);
+        retry_tracking(state, pool, tx, false);
     }
 
     let stdout = child.stdout.take();
@@ -1306,4 +1357,46 @@ fn unix_now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+#[cfg(test)]
+mod tracking_ui_tests {
+    use super::*;
+    #[tokio::test]
+    async fn launch_during_sync_requests_one_more_drain() {
+        let pool = db::init(":memory:").await.unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let mut state = AppState::new();
+        state.tracking_jobs = 1;
+        retry_tracking(&mut state, &pool, &tx, false);
+        retry_tracking(&mut state, &pool, &tx, false);
+        assert!(state.tracking_sync_again);
+        assert_eq!(state.tracking_jobs, 1);
+    }
+    #[tokio::test]
+    async fn refreshed_progress_preserves_open_detail_navigation() {
+        let pool = db::init(":memory:").await.unwrap();
+        let anime: db::cache::Anime = serde_json::from_value(serde_json::json!({"id":1,"title_english":null,"title_romaji":"Fixture","title_native":null,"description":null,"episodes":12,"status":"FINISHED","season":null,"season_year":null,"score":80,"format":"TV","genres":"[]","cover_url":null,"cover_blob":null,"has_dub":0,"updated_at":100})).unwrap();
+        db::cache::upsert_anime(&pool, &anime).await.unwrap();
+        let mut state = AppState::new();
+        let mut other = anime.clone();
+        other.id = 2;
+        db::cache::upsert_anime(&pool, &other).await.unwrap();
+        db::user::record_watched(&pool,2,1,200).await.unwrap();
+        let mut home = ui::home::HomeData::empty();
+        home.continue_watching = vec![anime.clone(),other];
+        state.row_cursors.insert("continue_watching".into(),0);
+        state.open_detail(anime);
+        state.selected_episode = Some(9);
+        state.episode_offset = 6;
+        state.cover_anime_id = Some(1);
+        for episode in 1..=5 { db::user::record_watched(&pool,1,episode,100).await.unwrap(); }
+        refresh_tracking_views(&mut state, &mut home, &pool).await;
+        assert_eq!(home.continue_watching[state.row_cursor("continue_watching")].id,1);
+        assert_eq!(state.watched_episodes.len(),5);
+        assert_eq!(state.selected_episode,Some(9));
+        assert_eq!(state.episode_offset,6);
+        assert_eq!(state.banner_progress,Some((1,5)));
+        assert_eq!(home.resume_next.get(&1),Some(&6));
+    }
 }
