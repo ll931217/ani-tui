@@ -36,6 +36,16 @@ Search accepts text normally; arrow keys move sequentially through results. The 
 
 Detail uses `h/l` or left/right for adjacent episodes and `j/k` or up/down for grid rows. Movement uses the rendered column count, handles a shorter final row, and scrolls only as needed to keep selection visible. Resizing updates the grid geometry. Tab switches focus between episodes and related anime; left/right and Enter then operate on related cards. The detail layout reserves space for episode navigation on shorter terminals.
 
+## Aired episodes versus planned totals
+
+A season's metadata episode count is its planned total, not a list of released streams. The detail grid now uses airing evidence separately: for a 12-episode season with two aired episodes, it displays `2 aired / 12 planned` and offers only E1 and E2. Completed titles with a known positive total retain their full list. Unreleased titles have no selectable episodes; missing counts never fabricate E1. Cancelled titles still use their schedule because some episodes may already have aired.
+
+`src/api/airing.rs` checks the latest past airing schedule and the next future scheduled episode through [AniList's Media API](https://docs.anilist.co/reference/object/media). Successful counts are cached in a separate SQLite `episode_airing` table for fifteen minutes. Queries run in the background with a ten-second timeout. If the request fails, previously confirmed counts remain usable; without confirmation, the app shows a retry message and blocks playback rather than guessing from the planned total. Reopen details to retry.
+
+Resume waits for the airing check, and playback and next-episode actions stay within the confirmed list. Detail history preserves aired counts. Request generations keep late responses from an earlier visit from overwriting reopened details or consuming a new resume request.
+
+These counts describe broadcast airings, not guaranteed stream availability on the current ani-cli provider or dub releases. Provider uploads and translations may lag behind the airing schedule.
+
 ## Build and checks
 
 ```bash

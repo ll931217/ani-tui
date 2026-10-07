@@ -16,6 +16,7 @@ It is built for local-first use: metadata is cached in SQLite, recommendations a
 - Consistent padding, quiet loading placeholders, and restored terminal colors after Kitty image rendering.
 - Home selection scrolls only when it crosses a visible row edge.
 - Episode navigation supports all four arrow keys and `h/j/k/l`, using the actual grid width and keeping selection visible on resize.
+- Airing shows list aired episodes separately from planned season totals; unreleased and unconfirmed episodes cannot be selected or launched.
 - Cached synopsis HTML is cleaned up, and detail layout preserves episode navigation on smaller terminals.
 
 See [the fork guide](docs/FORK.md) for rendering behavior, palette values, and implementation details.
@@ -220,6 +221,7 @@ stable_ttl   = 604800    # seconds (7 days)
 src/
   api/
     anilist.rs    — AniList GraphQL client (trending, popular, top rated, seasonal, search)
+    airing.rs     — Aired episode evidence and persistent availability cache
     player.rs     — ani-cli subprocess wrapper
   db/
     mod.rs        — SQLite init + migrations
