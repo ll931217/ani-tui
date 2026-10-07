@@ -108,8 +108,7 @@ async fn main() -> anyhow::Result<()> {
             .await;
             match result {
                 Ok(data) => { let _ = tx2.send(AppMessage::HomeData(Box::new(data))).await; }
-                Err(e)   => {
-                    eprintln!("Sync error: {e}");
+                Err(_)   => {
                     let _ = tx2.send(AppMessage::HomeData(Box::new(ui::home::HomeData::empty()))).await;
                 }
             }
