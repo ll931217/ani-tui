@@ -211,7 +211,7 @@ On first run, `ani-tui` will open the in-app setup screen automatically if playb
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move between category rows |
-| `h` / `l` | Scroll cards left / right |
+| `h` / `l` | Select cards left / right; scroll only past the visible row edges |
 | `Enter` | Open detail screen |
 | `/` | Search |
 | `s` | Open settings |

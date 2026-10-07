@@ -72,8 +72,12 @@ pub struct AppState {
     /// Home screen: which row the cursor is on
     pub active_row:       CategoryRow,
 
-    /// Home screen: horizontal card index per row
+    /// Home screen: first visible card index per row
     pub row_offsets:      std::collections::HashMap<String, usize>,
+
+    /// Selected card indices are independent of viewport offsets.
+    pub row_cursors: HashMap<String, usize>,
+    pub visible_cards: usize,
 
     /// Detail screen: the anime being viewed
     pub selected_anime:   Option<Anime>,
@@ -194,6 +198,8 @@ impl AppState {
             overlay_base:     Screen::Home,
             active_row:       CategoryRow::Trending,
             row_offsets:      std::collections::HashMap::new(),
+            row_cursors: HashMap::new(),
+            visible_cards: 1,
             selected_anime:   None,
             episode_list:     Vec::new(),
             selected_episode: None,
@@ -406,18 +412,39 @@ impl AppState {
         *self.row_offsets.get(row).unwrap_or(&0)
     }
 
-    /// Scroll a row right (card index + 1), clamped to max_cards - 1.
-    pub fn scroll_row_right(&mut self, row: &str, max_cards: usize) {
-        let entry = self.row_offsets.entry(row.to_string()).or_insert(0);
-        if *entry + 1 < max_cards {
-            *entry += 1;
+    pub fn row_cursor(&self, row: &str) -> usize {
+        *self.row_cursors.get(row).unwrap_or(&0)
+    }
+
+    /// Clamp selection after a resize or list update and keep it in view.
+    pub fn normalize_row(&mut self, row: &str, total: usize) {
+        let cursor = self.row_cursors.entry(row.to_string()).or_default();
+        *cursor = (*cursor).min(total.saturating_sub(1));
+        let visible = self.visible_cards.max(1);
+        let offset = self.row_offsets.entry(row.to_string()).or_default();
+        *offset = (*offset).min(total.saturating_sub(visible));
+        if *cursor < *offset {
+            *offset = *cursor;
+        } else if *cursor >= *offset + visible {
+            *offset = *cursor + 1 - visible;
         }
     }
 
-    /// Scroll a row left (card index - 1), clamped at 0.
+    /// Move selection right, scrolling only beyond the last visible card.
+    pub fn scroll_row_right(&mut self, row: &str, max_cards: usize) {
+        let cursor = self.row_cursors.entry(row.to_string()).or_default();
+        *cursor = cursor.saturating_add(1).min(max_cards.saturating_sub(1));
+        self.normalize_row(row, max_cards);
+    }
+
+    /// Move selection left, scrolling only beyond the first visible card.
     pub fn scroll_row_left(&mut self, row: &str) {
-        let entry = self.row_offsets.entry(row.to_string()).or_insert(0);
-        *entry = entry.saturating_sub(1);
+        let cursor = self.row_cursors.entry(row.to_string()).or_default();
+        *cursor = cursor.saturating_sub(1);
+        let offset = self.row_offsets.entry(row.to_string()).or_default();
+        if *cursor < *offset {
+            *offset = *cursor;
+        }
     }
 
     /// Return the base screen that should remain visible under overlays.
@@ -602,6 +629,48 @@ mod tests {
         assert_eq!(state.playback_logs.len(), 200);
         // Oldest lines removed, newest at end
         assert_eq!(state.playback_logs.last().unwrap(), "line 249");
+    }
+
+    #[test]
+    fn selection_scrolls_only_past_viewport_edges() {
+        let mut state = AppState::new();
+        state.visible_cards = 3;
+        for expected in 1..=2 {
+            state.scroll_row_right("trending", 10);
+            assert_eq!(state.row_cursor("trending"), expected);
+            assert_eq!(state.row_offset("trending"), 0);
+        }
+        state.scroll_row_right("trending", 10);
+        assert_eq!(state.row_cursor("trending"), 3);
+        assert_eq!(state.row_offset("trending"), 1);
+        for expected in (1..=2).rev() {
+            state.scroll_row_left("trending");
+            assert_eq!(state.row_cursor("trending"), expected);
+            assert_eq!(state.row_offset("trending"), 1);
+        }
+        state.scroll_row_left("trending");
+        assert_eq!(state.row_offset("trending"), 0);
+        assert_eq!(state.row_cursor("trending"), 0);
+    }
+
+    #[test]
+    fn viewport_clamps_after_resize_and_removal_without_affecting_other_rows() {
+        let mut state = AppState::new();
+        state.visible_cards = 3;
+        for _ in 0..7 { state.scroll_row_right("watchlist", 10); }
+        state.scroll_row_right("trending", 10);
+        assert_eq!(state.row_offset("watchlist"), 5);
+        state.visible_cards = 5;
+        state.normalize_row("watchlist", 10);
+        assert_eq!(state.row_cursor("watchlist"), 7);
+        assert_eq!(state.row_offset("watchlist"), 5);
+        state.normalize_row("watchlist", 2);
+        assert_eq!(state.row_cursor("watchlist"), 1);
+        assert_eq!(state.row_offset("watchlist"), 0);
+        assert_eq!(state.row_cursor("trending"), 1);
+        state.normalize_row("watchlist", 0);
+        assert_eq!(state.row_cursor("watchlist"), 0);
+        assert_eq!(state.row_offset("watchlist"), 0);
     }
 
     #[test]

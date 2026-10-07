@@ -115,6 +115,7 @@ async fn main() -> anyhow::Result<()> {
             match msg {
                 AppMessage::HomeData(data) => {
                     home_data        = *data;
+                    home_data.normalize_selection(&mut state);
                     state.is_loading = false;
                     refresh_home_cover(&mut state, &home_data, &pool, &tx);
                 }
@@ -154,9 +155,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 AppMessage::WatchlistUpdated(list) => {
                     home_data.watchlist = list;
-                    let max_idx = home_data.watchlist.len().saturating_sub(1);
-                    let offset  = state.row_offset("watchlist").min(max_idx);
-                    state.row_offsets.insert("watchlist".to_string(), offset);
+                    state.normalize_row("watchlist", home_data.watchlist.len());
                     refresh_home_cover(&mut state, &home_data, &pool, &tx);
                 }
                 AppMessage::BannerProgress(anime_id, watched) => {
@@ -402,7 +401,7 @@ fn active_row_key_max(state: &AppState, data: &ui::home::HomeData) -> (String, u
 fn active_anime(state: &AppState, data: &ui::home::HomeData) -> Option<db::cache::Anime> {
     use state::CategoryRow::*;
     let (key, _) = active_row_key_max(state, data);
-    let offset   = state.row_offset(&key);
+    let cursor   = state.row_cursor(&key);
     let list     = match state.active_row {
         ContinueWatching => &data.continue_watching,
         Watchlist        => &data.watchlist,
@@ -412,7 +411,7 @@ fn active_anime(state: &AppState, data: &ui::home::HomeData) -> Option<db::cache
         TopRated         => &data.top_rated,
         Seasonal         => &data.seasonal,
     };
-    list.get(offset).cloned()
+    list.get(cursor).cloned()
 }
 
 async fn open_detail_from_anime(

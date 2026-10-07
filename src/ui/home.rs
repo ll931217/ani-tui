@@ -26,6 +26,8 @@ pub fn render(frame: &mut Frame, state: &mut AppState, categories: &HomeData, po
     posters.set_overlay(state.screen != crate::state::Screen::Home);
     posters.poll();
     let area = frame.area();
+    state.visible_cards = (area.width / (CARD_WIDTH + CARD_GAP)).max(1) as usize;
+    categories.normalize_selection(state);
     let banner_anime = active_banner_anime(state, categories).or(categories.featured.as_ref());
 
     let chunks = Layout::default()
@@ -311,7 +313,7 @@ fn active_banner_anime<'a>(state: &AppState, data: &'a HomeData) -> Option<&'a A
         CategoryRow::Seasonal         => ("seasonal", &data.seasonal),
     };
 
-    items.get(state.row_offset(row_key))
+    items.get(state.row_cursor(row_key))
 }
 
 /// Render all category rows.
@@ -412,7 +414,7 @@ fn render_row(
     )));
     frame.render_widget(label_widget, chunks[0]);
 
-    // Cards — the first visible card is the selected one when this row is active
+    // Selection moves inside the viewport; scrolling starts at its edges.
     let card_area   = chunks[1];
     let offset      = state.row_offset(key);
     let visible_n   = (card_area.width / (CARD_WIDTH + CARD_GAP)).max(1) as usize;
@@ -433,7 +435,7 @@ fn render_row(
                 None
             };
             let progress = data.progress_labels.get(&anime.id).map(String::as_str);
-            render_card(frame, rect, anime, is_active && i == 0, reason, progress, posters);
+            render_card(frame, rect, anime, is_active && offset + i == state.row_cursor(key), reason, progress, posters);
         }
     }
 }
@@ -583,6 +585,21 @@ pub struct HomeData {
 }
 
 impl HomeData {
+    /// Clamp selection before banner loading when refreshed lists change size.
+    pub fn normalize_selection(&self, state: &mut AppState) {
+        for (key, total) in [
+            ("continue_watching", self.continue_watching.len()),
+            ("watchlist", self.watchlist.len()),
+            ("recommended", self.recommended.len()),
+            ("trending", self.trending.len()),
+            ("popular", self.popular.len()),
+            ("top_rated", self.top_rated.len()),
+            ("seasonal", self.seasonal.len()),
+        ] {
+            state.normalize_row(key, total);
+        }
+    }
+
     pub fn empty() -> Self {
         Self {
             featured:          None,
