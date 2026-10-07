@@ -9,8 +9,10 @@ const QUERY: &str = r#"query($id: Int) {
     Media(id: $id, type: ANIME) {
         status episodes
         nextAiringEpisode { episode airingAt }
-        airingSchedule(notYetAired: false, perPage: 1, sort: EPISODE_DESC) {
-            nodes { episode airingAt }
+    }
+    Page(page: 1, perPage: 1) {
+        airingSchedules(mediaId: $id, notYetAired: false, sort: EPISODE_DESC) {
+            episode airingAt
         }
     }
 }"#;
@@ -64,6 +66,16 @@ pub(crate) fn parse_count(media: &Value, now: i64) -> Option<u32> {
     scheduled.into_iter().chain(previous).max()
 }
 
+/// Join the Media metadata and the sorted root Page schedule response.
+fn parse_response(response: &Value, now: i64) -> Option<u32> {
+    if response.get("errors").is_some() { return None; }
+    let mut media = response["data"]["Media"].as_object()?.clone();
+    media.insert("airingSchedule".to_owned(), json!({
+        "nodes": response["data"]["Page"]["airingSchedules"]
+    }));
+    parse_count(&Value::Object(media), now)
+}
+
 /// Fetch an aired count, caching successful evidence for fifteen minutes.
 /// On network failure, a previously confirmed count remains a safe fallback.
 pub async fn aired_count(pool: &SqlitePool, anime: &Anime, now: i64) -> Option<u32> {
@@ -87,6 +99,7 @@ pub async fn aired_count(pool: &SqlitePool, anime: &Anime, now: i64) -> Option<u
     }
     let fresh = async {
         let client = reqwest::Client::builder()
+            .user_agent("ani-tui")
             .timeout(Duration::from_secs(10))
             .build()
             .ok()?;
@@ -101,10 +114,7 @@ pub async fn aired_count(pool: &SqlitePool, anime: &Anime, now: i64) -> Option<u
             .json()
             .await
             .ok()?;
-        if response.get("errors").is_some() {
-            return None;
-        }
-        parse_count(&response["data"]["Media"], now)
+        parse_response(&response, now)
     }
     .await;
     if let Some(count) = fresh {
@@ -117,6 +127,17 @@ pub async fn aired_count(pool: &SqlitePool, anime: &Anime, now: i64) -> Option<u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sorted_page_response_confirms_nia_listons_first_episode() {
+        let response = json!({"data": {
+            "Media": {"status":"RELEASING","episodes":25,
+                "nextAiringEpisode":{"episode":2,"airingAt":1791894360}},
+            "Page": {"airingSchedules":[{"episode":1,"airingAt":1791289560}]}
+        }});
+        assert_eq!(parse_response(&response, 1791379200), Some(1));
+        assert_eq!(parse_response(&json!({"errors":[{"message":"Invalid query"}],"data":null}),1791379200),None);
+    }
 
     #[test]
     fn planned_total_does_not_become_aired_count() {
