@@ -1,6 +1,6 @@
 # Account setup
 
-Connect AniList, MyAnimeList, or both to track episodes automatically when playback launches. Without a connection, local history and playback work as before.
+Connect AniList, MyAnimeList, or both for two-way episode progress. Remote history appears in the TUI, and episode launches update connected accounts. Without a connection, local history and playback work as before.
 
 ## Register AniList
 
@@ -34,7 +34,7 @@ Client IDs can be shared for configuration. Keep access tokens, refresh tokens, 
 
 ## Use and manage accounts
 
-Press `a` from Home, Details, or Settings. The dialog shows connection status and recent sync results; `r` refreshes status and retries, `j/k` or arrows scroll, and Escape closes it. After connecting from another terminal, press `r` to refresh an already-running TUI.
+Press `a` from Home, Details, or Settings. The dialog shows connection status and recent sync results; `r` forces a two-way import and retries pending uploads, `j/k` or arrows scroll, and Escape closes it. After connecting from another terminal, press `r` to refresh an already-running TUI.
 
 ```bash
 ani-tui accounts status
@@ -48,10 +48,12 @@ Omit the client ID from a connect command to print registration instructions wit
 ## Progress behavior
 
 - Launching E3 records progress 3. It does not verify that the episode was completed or that the external player successfully played the stream.
-- Updates are outbound. Remote watchlists and history are not imported into local recommendations or history.
+- Remote progress imports at startup, every five minutes while running, and on manual sync. Imported counts mark E1 through that count as watched. Continue Watching, resume labels, recommendations, and an open detail page refresh without restarting or moving your current episode cursor.
+- The highest episode count wins across local history and both providers. A higher AniList count reaches MyAnimeList and vice versa. Existing local history is also reconciled, including progress imported before an account was disconnected. Lower manual resets and deletions do not erase local progress or lower another account.
+- This sync covers episode progress. Remote watchlists, scores, list removals, and rewatch counts are not imported. Titles with zero progress do not create local watch history.
 - Remote progress never decreases when replaying earlier episodes. Existing completed status is preserved; a new completed status requires a finished title and reaching its known episode total.
 - Failed updates remain in SQLite and retry at startup, on another launch, or with a manual retry. Local playback remains responsive.
-- MyAnimeList uses the title's authoritative AniList `idMal` mapping. A missing mapping produces a retryable error rather than guessing a title.
+- MyAnimeList uses authoritative AniList `idMal` mappings, fetched in batches and cached. Remote titles without a mapping are skipped with a count in the dialog; uploads without a mapping remain queued rather than guessing a title.
 - Jobs are bound to the connected user's ID. Disconnecting or connecting a different user clears that provider's pending jobs.
 
 ## Credentials and troubleshooting
@@ -60,4 +62,6 @@ Tokens are stored in `accounts.json` alongside `config.toml`: `~/.config/ani-tui
 
 If AniList authorization expires or is revoked, reconnect. MAL refreshes automatically; reconnect if refresh access has expired or been revoked. Provider outages retain queued updates for retry. Disconnect removes local credentials and pending jobs; revoke authorization in the provider's account settings to remove server-side access too.
 
-The implementation has automated credential, callback, queue, and progress-merge tests. Full live authorization and remote progress writes require registered client IDs and account approval.
+Imports paginate the complete list before applying user progress. Invalid or incomplete responses leave local progress intact; duplicate AniList entries merge conservatively. Limits are 20,000 list entries, 10,000 episodes per title, and one million imported episode rows per provider pass. Provider failures are throttled for five minutes; manual sync bypasses that cooldown. Rotating MAL tokens are saved before later list or database operations can fail.
+
+The implementation has automated credential, callback, list-parser, merge, retry, and TUI refresh tests. After connecting your accounts, run `ani-tui accounts retry` for an end-to-end sync and inspect the account dialog for results.

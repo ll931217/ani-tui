@@ -99,6 +99,21 @@ fn anilist_page(data: &Value, now: i64) -> Result<(Vec<RemoteEntry>, bool)> {
     Ok((entries, more))
 }
 
+fn merge_entry(
+    entries: &mut Vec<RemoteEntry>,
+    positions: &mut HashMap<i64, usize>,
+    entry: RemoteEntry,
+) {
+    if let Some(&index) = positions.get(&entry.anime.id) {
+        let existing = &mut entries[index];
+        existing.progress = existing.progress.max(entry.progress);
+        existing.updated_at = existing.updated_at.max(entry.updated_at);
+    } else {
+        positions.insert(entry.anime.id, entries.len());
+        entries.push(entry);
+    }
+}
+
 async fn anilist(
     client: &Client,
     pool: &SqlitePool,
@@ -107,7 +122,7 @@ async fn anilist(
 ) -> Result<RemoteList> {
     let query = ["query($user:Int!,$page:Int!){Page(page:$page,perPage:50){pageInfo{hasNextPage} mediaList(userId:$user,type:ANIME,sort:MEDIA_ID){progress updatedAt media{", FIELDS, "}}}}"].concat();
     let mut entries = Vec::new();
-    let mut seen = HashSet::new();
+    let mut positions = HashMap::new();
     for page in 1..=MAX_ENTRIES / 50 {
         let response = graphql(
             client,
@@ -118,9 +133,6 @@ async fn anilist(
         .await?;
         let (batch, more) = anilist_page(&response, now)?;
         for entry in batch {
-            if !seen.insert(entry.anime.id) {
-                bail!("AniList list changed during pagination; retry sync");
-            }
             if let Some(id) = response["data"]["Page"]["mediaList"]
                 .as_array()
                 .and_then(|items| {
@@ -137,7 +149,7 @@ async fn anilist(
                     .execute(pool)
                     .await?;
             }
-            entries.push(entry);
+            merge_entry(&mut entries, &mut positions, entry);
         }
         if !more {
             return Ok(RemoteList {
@@ -340,6 +352,20 @@ mod tests {
         assert!(mapping_page(&response, &[2], 20).is_err());
         let empty = json!({"data":{"Page":{"pageInfo":{"hasNextPage":false},"media":[]}}});
         assert!(mapping_page(&empty, &[3], 20).unwrap().is_empty());
+    }
+    #[test]
+    fn repeated_list_entries_merge_across_pages_without_lowering_progress() {
+        let page = |progress, updated| json!({"data":{"Page":{"pageInfo":{"hasNextPage":false},"mediaList":[{"media":media(),"progress":progress,"updatedAt":updated}]}}});
+        let mut entries = Vec::new();
+        let mut positions = HashMap::new();
+        for response in [page(5, 10), page(3, 15), page(8, 12)] {
+            for entry in anilist_page(&response, 20).unwrap().0 {
+                merge_entry(&mut entries, &mut positions, entry);
+            }
+        }
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].progress, 8);
+        assert_eq!(entries[0].updated_at, 15);
     }
     #[test]
     fn anilist_requires_progress_and_complete_pagination() {

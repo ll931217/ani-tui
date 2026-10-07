@@ -17,7 +17,7 @@ It is built for local-first use: metadata is cached in SQLite, recommendations a
 - Home selection scrolls only when it crosses a visible row edge.
 - Episode navigation supports all four arrow keys and `h/j/k/l`, using the actual grid width and keeping selection visible on resize.
 - Airing shows list aired episodes separately from planned season totals; unreleased and unconfirmed episodes cannot be selected or launched.
-- Optional AniList and MyAnimeList accounts automatically track progress on episode launch, with durable offline retries.
+- Two-way AniList and MyAnimeList progress: import remote history, update the TUI automatically, and sync episode launches with durable offline retries.
 - Cached synopsis HTML is cleaned up, and detail layout preserves episode navigation on smaller terminals.
 
 See [the fork guide](docs/FORK.md) for rendering behavior, palette values, and implementation details.
@@ -73,14 +73,14 @@ Captured from this fork running in Kitty with native cover images.
 
 ## Account Tracking
 
-Press `a` from Home, Details, or Settings to view account status and retry pending updates. Connect either or both providers from a separate terminal:
+Press `a` from Home, Details, or Settings to view account status and sync progress in both directions. Connect either or both providers from a separate terminal:
 
 ```bash
 ani-tui accounts connect anilist YOUR_CLIENT_ID
 ani-tui accounts connect mal YOUR_CLIENT_ID
 ```
 
-See [the account setup guide](docs/ACCOUNTS.md) for app registration, exact redirect URLs, authorization, and disconnect commands. Progress updates when playback launches; it does not wait for viewing completion. Failed updates persist locally and retry automatically.
+See [the account setup guide](docs/ACCOUNTS.md) for app registration, exact redirect URLs, authorization, and disconnect commands. Remote progress imports at startup and every five minutes, updating Continue Watching, recommendations, resume labels, and watched markers. Press `a`, then `r`, to sync immediately. The highest episode count wins across local history and both accounts. Launches update accounts without waiting for viewing completion; failed updates persist for retry. Watchlists, scores, and deliberate progress resets are not synchronized.
 
 ## Prerequisites
 
@@ -254,6 +254,9 @@ src/
     oauth.rs      — AniList PIN and MyAnimeList native PKCE authorization
     credentials.rs — Private token storage and cross-process locking
     providers.rs  — Remote progress reads, updates, and MAL token refresh
+    remote.rs     — Paginated account lists and exact ID mapping
+    reconcile.rs  — Monotonic imports and cross-account catch-up
+    bidirectional.rs — Import scheduling, token persistence, and conflict orchestration
   ui/
     home.rs       — Curated home screen
     detail.rs     — Anime detail + episode list

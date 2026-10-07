@@ -52,7 +52,9 @@ Optional AniList and MyAnimeList connections share the Amp dialog style and pres
 
 `src/tracking/` separates OAuth, credentials, provider requests, and queue orchestration. Launches persist identity-bound progress jobs in SQLite before background network requests. Retries run at startup, on subsequent launches, and on request. Updates never reduce remote progress. MyAnimeList IDs come from AniList metadata rather than title matching. Tokens live separately from preferences and are saved atomically with owner-only Unix permissions. Cross-process locking protects token refresh and account changes.
 
-Tracking records episode launches, not verified viewing completion. Sync is outbound; remote lists are not imported. Both providers can be connected independently.
+Tracking records episode launches, not verified viewing completion. Sync is bidirectional for episode progress. Full paginated remote lists import at startup, every five minutes, and on request. Counts materialize contiguous watched history without overwriting existing local event timestamps. Continue Watching and open detail markers refresh from SQLite; selection is preserved by anime ID and episode cursor.
+
+`remote.rs` batches authoritative MAL-to-AniList lookups and deduplicates AniList entries. `reconcile.rs` takes the highest confirmed progress and queues lower accounts to catch up. `bidirectional.rs` manages import cooldowns and saves refreshed tokens before downstream work. Failed imports do not prevent outbound retries. Watchlists, scores, deletions, and lower progress resets are outside the progress sync contract. Both providers can be connected independently.
 
 ## Build and checks
 
