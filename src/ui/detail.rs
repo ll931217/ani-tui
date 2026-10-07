@@ -2,16 +2,19 @@
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{
+        Block, BorderType, Borders, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState,
+    },
     Frame,
 };
 
 use crate::{
     db::cache::Anime,
     state::{AppState, DetailFocus},
-    ui::components::cover::HalfblockCover,
+    ui::{components::cover::HalfblockCover, theme},
 };
 
 /// Render the detail screen.
@@ -21,51 +24,50 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
     };
 
     let area = frame.area();
-    let action_label = match state.selected_episode.unwrap_or(1) {
-        1 => " Start E1 ".to_string(),
-        ep => format!(" Continue E{} ", ep),
-    };
-
-    // Back hint
+    frame.render_widget(Block::default().style(Style::default().bg(theme::BG)), area);
+    let area = area.inner(Margin {
+        horizontal: 2,
+        vertical: 1,
+    });
     let hint = Paragraph::new(Line::from(vec![
-        Span::styled(" ← Esc", Style::default().fg(Color::Rgb(120, 120, 120))),
-        Span::raw("  "),
-        Span::styled("Enter", Style::default().fg(Color::Rgb(180, 0, 255))),
-        Span::raw(" "),
-        Span::styled(action_label, Style::default().fg(Color::Rgb(220, 220, 220))),
-        Span::raw("  "),
-        Span::styled("+", Style::default().fg(Color::Rgb(180, 0, 255))),
-        Span::raw(" Watchlist  "),
-        Span::styled("h/l", Style::default().fg(Color::Rgb(180, 0, 255))),
-        Span::raw(" Episode  "),
-        Span::styled("n", Style::default().fg(Color::Rgb(180, 0, 255))),
-        Span::raw(" Next  "),
-        Span::styled("Tab", Style::default().fg(Color::Rgb(180, 0, 255))),
-        Span::raw(" Focus related  "),
-        Span::styled("/", Style::default().fg(Color::Rgb(180, 0, 255))),
-        Span::raw(" Search  "),
-        Span::styled("?", Style::default().fg(Color::Rgb(180, 0, 255))),
-        Span::raw(" Help"),
+        Span::styled("Esc", Style::default().fg(theme::ACCENT)),
+        Span::raw(" back    "),
+        Span::styled("Enter", Style::default().fg(theme::ACCENT)),
+        Span::raw(" play    "),
+        Span::styled("+", Style::default().fg(theme::ACCENT)),
+        Span::raw(" watchlist    "),
+        Span::styled("h/l", Style::default().fg(theme::ACCENT)),
+        Span::raw(" episode    "),
+        Span::styled("Tab", Style::default().fg(theme::ACCENT)),
+        Span::raw(" related    "),
+        Span::styled("?", Style::default().fg(theme::ACCENT)),
+        Span::raw(" all keys"),
     ]))
-    .style(Style::default().bg(Color::Rgb(10, 10, 16)));
+    .style(Style::default().fg(theme::MUTED).bg(theme::BG));
 
+    // Keep episode navigation available on short terminals before expanding metadata.
+    let related_height = if state.detail_recommendations.is_empty() || area.height < 18 {
+        0
+    } else {
+        6
+    };
+    let info_height = area.height.saturating_sub(related_height + 7).min(14);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // hint bar
-            Constraint::Length(14), // top info panel
-            Constraint::Length(if state.detail_recommendations.is_empty() { 0 } else { 5 }),
-            Constraint::Min(0),     // episode list
+            Constraint::Length(2),
+            Constraint::Length(info_height),
+            Constraint::Length(related_height),
+            Constraint::Min(5),
         ])
         .split(area);
 
     frame.render_widget(hint, chunks[0]);
     render_info(frame, chunks[1], state, &anime);
-    if !state.detail_recommendations.is_empty() {
+    if related_height > 0 {
         render_related(frame, chunks[2], state);
     }
-    let episodes_idx = if state.detail_recommendations.is_empty() { 2 } else { 3 };
-    render_episodes(frame, chunks[episodes_idx], state);
+    render_episodes(frame, chunks[3], state);
 }
 
 /// Top section: cover + metadata side by side.
@@ -79,14 +81,20 @@ fn render_info(frame: &mut Frame, area: Rect, state: &mut AppState, anime: &Anim
         .split(area);
 
     let cover_frame = if cols[0].width > 4 && cols[0].height > 4 {
-        cols[0].inner(Margin { horizontal: 1, vertical: 1 })
+        cols[0].inner(Margin {
+            horizontal: 1,
+            vertical: 1,
+        })
     } else {
         cols[0]
     };
-    let cover_bg = Block::default().style(Style::default().bg(Color::Rgb(14, 14, 22)));
+    let cover_bg = Block::default().style(Style::default().bg(theme::SURFACE));
     frame.render_widget(cover_bg, cover_frame);
     let cover_inner = if cover_frame.width > 2 && cover_frame.height > 2 {
-        cover_frame.inner(Margin { horizontal: 1, vertical: 1 })
+        cover_frame.inner(Margin {
+            horizontal: 1,
+            vertical: 1,
+        })
     } else {
         cover_frame
     };
@@ -94,8 +102,8 @@ fn render_info(frame: &mut Frame, area: Rect, state: &mut AppState, anime: &Anim
     // Cover: real image when terminal supports it, halfblock otherwise
     if state.has_image_support() && state.cover_state.is_some() {
         if let Some(ref mut cover) = state.cover_state {
-            let image_widget = ratatui_image::StatefulImage::new(None)
-                .resize(ratatui_image::Resize::Fit(None));
+            let image_widget =
+                ratatui_image::StatefulImage::new(None).resize(ratatui_image::Resize::Fit(None));
             frame.render_stateful_widget(image_widget, cover_inner, cover);
         }
     } else if state.has_image_support() && state.cover_anime_id == Some(anime.id) {
@@ -105,19 +113,23 @@ fn render_info(frame: &mut Frame, area: Rect, state: &mut AppState, anime: &Anim
             "Loading cover..."
         };
         let loading = Paragraph::new(label)
-            .style(Style::default().fg(Color::Rgb(160, 160, 180)).bg(Color::Rgb(14, 14, 22)))
+            .style(Style::default().fg(theme::MUTED).bg(theme::SURFACE))
             .alignment(ratatui::layout::Alignment::Center);
         frame.render_widget(loading, cover_inner);
     } else {
         frame.render_widget(
-            HalfblockCover { anime_id: anime.id, title: anime.display_title() },
+            HalfblockCover {
+                anime_id: anime.id,
+                title: anime.display_title(),
+            },
             cover_inner,
         );
     }
     frame.render_widget(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(60, 60, 80))),
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme::BORDER)),
         cover_frame,
     );
 
@@ -126,51 +138,62 @@ fn render_info(frame: &mut Frame, area: Rect, state: &mut AppState, anime: &Anim
 }
 
 fn render_metadata(frame: &mut Frame, area: Rect, state: &AppState, anime: &Anime) {
-    let title   = anime.display_title();
-    let score   = anime.score.map(|s| format!("★ {:.1}", s as f32 / 10.0)).unwrap_or_else(|| "★ N/A".to_string());
-    let eps     = anime.episodes.map(|e| format!("{} eps", e)).unwrap_or_else(|| "? eps".to_string());
-    let fmt     = anime.format.as_deref().unwrap_or("TV");
-    let status  = anime.status.as_deref().unwrap_or("Unknown");
-    let year    = anime.season_year.map(|y| y.to_string()).unwrap_or_else(|| "?".to_string());
-    let season  = anime.season.as_deref().unwrap_or("");
-    let genres  = anime.genre_list().join(" · ");
-    let desc    = anime
-        .description
-        .as_deref()
-        .unwrap_or("No description available.")
-        .chars()
-        .take(220)
-        .collect::<String>();
-    let dub_tag = if anime.has_dub() { "  Sub + Dub" } else { "  Sub only" };
+    let title = anime.display_title();
+    let score = anime
+        .score
+        .map(|s| format!("★ {:.1}", s as f32 / 10.0))
+        .unwrap_or_else(|| "★ N/A".to_string());
+    let eps = anime
+        .episodes
+        .map(|e| format!("{} eps", e))
+        .unwrap_or_else(|| "? eps".to_string());
+    let fmt = anime.format.as_deref().unwrap_or("TV");
+    let status = anime.status.as_deref().unwrap_or("Unknown");
+    let year = anime
+        .season_year
+        .map(|y| y.to_string())
+        .unwrap_or_else(|| "?".to_string());
+    let season = anime.season.as_deref().unwrap_or("");
+    let genres = anime.genre_list().join(" · ");
+    let desc = theme::plain_text(
+        anime
+            .description
+            .as_deref()
+            .unwrap_or("No description available."),
+    )
+    .chars()
+    .take(280)
+    .collect::<String>();
+    let dub_tag = if anime.has_dub() {
+        "  Sub + Dub"
+    } else {
+        "  Sub only"
+    };
     let play_label = match state.selected_episode.unwrap_or(1) {
         1 => " Start E1 ".to_string(),
         ep => format!(" Continue E{} ", ep),
     };
     let watchlist_label = if state.in_watchlist {
-        " - Remove "
+        " + Remove "
     } else {
         " + Watchlist "
     };
 
-    let playback_status = if state.now_playing.is_some()
-        && state.last_played_anime_id == Some(anime.id)
-    {
-        state.now_playing.as_deref()
-    } else if state.last_played_anime_id == Some(anime.id) {
-        state.last_played.as_deref()
-    } else {
-        None
-    };
+    let playback_status =
+        if state.now_playing.is_some() && state.last_played_anime_id == Some(anime.id) {
+            state.now_playing.as_deref()
+        } else if state.last_played_anime_id == Some(anime.id) {
+            state.last_played.as_deref()
+        } else {
+            None
+        };
 
     let mut lines = Vec::new();
     if let Some(origin) = state.detail_origin_title.as_deref() {
         lines.push(Line::from(vec![
-            Span::styled(
-                " From ",
-                Style::default().fg(Color::Black).bg(Color::Rgb(180, 0, 255)),
-            ),
+            Span::styled(" From ", Style::default().fg(theme::BG).bg(theme::ACCENT)),
             Span::raw(" "),
-            Span::styled(origin, Style::default().fg(Color::Rgb(180, 180, 200))),
+            Span::styled(origin, Style::default().fg(theme::MUTED)),
         ]));
         lines.push(Line::from(""));
     }
@@ -178,31 +201,34 @@ fn render_metadata(frame: &mut Frame, area: Rect, state: &AppState, anime: &Anim
     lines.extend([
         Line::from(Span::styled(
             title,
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(theme::TEXT)
+                .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            format!("{}  |  {}  |  {}  |  {} {}  |  {}{}", score, eps, fmt, season, year, status, dub_tag),
-            Style::default().fg(Color::Rgb(160, 160, 160)),
+            format!(
+                "{}  ·  {}  ·  {}  ·  {} {}  ·  {}{}",
+                score, eps, fmt, season, year, status, dub_tag
+            ),
+            Style::default().fg(theme::MUTED),
         )),
-        Line::from(Span::styled(genres, Style::default().fg(Color::Rgb(180, 0, 255)))),
+        Line::from(Span::styled(genres, Style::default().fg(theme::ACCENT))),
         Line::from(""),
-        Line::from(Span::styled(desc, Style::default().fg(Color::Rgb(210, 210, 210)))),
+        Line::from(Span::styled(desc, Style::default().fg(theme::TEXT))),
     ]);
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled(
             play_label,
             Style::default()
-                .fg(Color::Black)
-                .bg(Color::White)
+                .fg(theme::BG)
+                .bg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
         Span::styled(
             watchlist_label,
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Rgb(60, 60, 60)),
+            Style::default().fg(theme::TEXT).bg(theme::PANEL),
         ),
     ]));
 
@@ -212,34 +238,28 @@ fn render_metadata(frame: &mut Frame, area: Rect, state: &AppState, anime: &Anim
             Span::styled(
                 " Playback ",
                 Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(180, 0, 255))
+                    .fg(theme::BG)
+                    .bg(theme::ACCENT)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
-            Span::styled(status_line, Style::default().fg(Color::Rgb(210, 210, 210))),
+            Span::styled(status_line, Style::default().fg(theme::TEXT)),
         ]));
     }
 
     let para = Paragraph::new(lines)
-        .block(Block::default().style(Style::default().bg(Color::Rgb(10, 10, 16))))
+        .style(Style::default().fg(theme::TEXT).bg(theme::SURFACE))
+        .block(Block::default().padding(Padding::new(2, 2, 1, 1)))
         .wrap(ratatui::widgets::Wrap { trim: true });
     frame.render_widget(para, area);
 }
 
 fn render_related(frame: &mut Frame, area: Rect, state: &AppState) {
-    let block = Block::default()
-        .title(Span::styled(
-            " More Like This ",
-            Style::default().fg(Color::Rgb(220, 220, 220)).add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::TOP)
-        .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
-        .style(Style::default().bg(Color::Rgb(10, 10, 16)));
+    let block = theme::panel("More Like This").padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    if inner.height < 3 || inner.width < 12 {
+    if inner.height < 4 || inner.width < 12 {
         return;
     }
 
@@ -264,7 +284,7 @@ fn render_related(frame: &mut Frame, area: Rect, state: &AppState) {
             x,
             y: inner.y,
             width: card_width,
-            height: inner.height.min(3),
+            height: inner.height.min(4),
         };
 
         let reason = state
@@ -276,26 +296,27 @@ fn render_related(frame: &mut Frame, area: Rect, state: &AppState) {
         let lines = vec![
             Line::from(Span::styled(
                 anime.short_title(),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme::TEXT)
+                    .add_modifier(Modifier::BOLD),
             )),
-            Line::from(Span::styled(
-                reason,
-                Style::default().fg(Color::Rgb(180, 0, 255)),
-            )),
+            Line::from(Span::styled(reason, Style::default().fg(theme::ACCENT))),
         ];
 
-        let is_selected =
-            state.detail_focus == DetailFocus::Related && absolute_idx == state.detail_related_cursor;
+        let is_selected = state.detail_focus == DetailFocus::Related
+            && absolute_idx == state.detail_related_cursor;
         let item = Paragraph::new(lines)
+            .style(Style::default().fg(theme::TEXT).bg(theme::SURFACE))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(if is_selected {
-                        Style::default().fg(Color::Rgb(180, 0, 255))
+                        Style::default().fg(theme::ACCENT)
                     } else {
-                        Style::default().fg(Color::Rgb(45, 45, 65))
+                        Style::default().fg(theme::BORDER)
                     })
-                    .style(Style::default().bg(Color::Rgb(14, 14, 20))),
+                    .style(Style::default().bg(theme::SURFACE)),
             )
             .wrap(ratatui::widgets::Wrap { trim: true });
         frame.render_widget(item, rect);
@@ -304,71 +325,66 @@ fn render_related(frame: &mut Frame, area: Rect, state: &AppState) {
 
 /// Episode list section — horizontal scrolling pills.
 fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState) {
-    let block = Block::default()
-        .title(Span::styled(
-            " Episodes ",
-            Style::default().fg(Color::Rgb(220, 220, 220)).add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::TOP)
-        .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
-        .style(Style::default().bg(Color::Rgb(10, 10, 16)));
+    let block = theme::panel("Episodes");
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     if state.episode_list.is_empty() {
         let msg = Paragraph::new("No episode data available.")
-            .style(Style::default().fg(Color::Rgb(120, 120, 120)));
+            .style(Style::default().fg(theme::MUTED).bg(theme::SURFACE));
         frame.render_widget(msg, inner);
         return;
     }
 
     // Calculate how many pills fit per row
     let pill_width: u16 = 6; // " E99 "
-    let pills_per_row   = (inner.width / pill_width).max(1) as usize;
-    let selected_ep     = state.selected_episode.unwrap_or(1);
+    let pills_per_row = (inner.width / pill_width).max(1) as usize;
+    let selected_ep = state.selected_episode.unwrap_or(1);
 
     // Render rows of episode pills
     let rows_needed = state.episode_list.len().div_ceil(pills_per_row);
     let visible_rows = inner.height.saturating_sub(1) as usize;
-    let offset_rows  = state.episode_offset / pills_per_row;
+    let offset_rows = state.episode_offset / pills_per_row;
 
-    for (y, row_idx) in (inner.y..).zip(offset_rows..(offset_rows + visible_rows).min(rows_needed)) {
+    for (y, row_idx) in (inner.y..).zip(offset_rows..(offset_rows + visible_rows).min(rows_needed))
+    {
         if y >= inner.y + inner.height {
             break;
         }
-        let start   = row_idx * pills_per_row;
-        let end     = (start + pills_per_row).min(state.episode_list.len());
-        let mut x   = inner.x;
+        let start = row_idx * pills_per_row;
+        let end = (start + pills_per_row).min(state.episode_list.len());
+        let mut x = inner.x;
 
         for &ep in &state.episode_list[start..end] {
             if x + pill_width > inner.x + inner.width {
                 break;
             }
             let is_selected = ep == selected_ep;
-            let is_watched  = state.watched_episodes.contains(&ep);
-            let label       = format!(" E{:<3}", ep);
-            let style       = if is_selected {
-                // Purple highlight for the active cursor position
+            let is_watched = state.watched_episodes.contains(&ep);
+            let label = format!(" E{:<3}", ep);
+            let style = if is_selected {
+                // Warm accent for the active cursor position
                 Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(180, 0, 255))
+                    .fg(theme::BG)
+                    .bg(theme::ACCENT)
                     .add_modifier(Modifier::BOLD)
             } else if is_watched {
                 // Dimmed to show the episode is already watched
-                Style::default()
-                    .fg(Color::Rgb(90, 90, 110))
-                    .bg(Color::Rgb(18, 18, 28))
+                Style::default().fg(theme::SUCCESS).bg(theme::SURFACE)
             } else {
-                Style::default()
-                    .fg(Color::Rgb(180, 180, 180))
-                    .bg(Color::Rgb(25, 25, 35))
+                Style::default().fg(theme::TEXT).bg(theme::PANEL)
             };
 
-            let pill = Paragraph::new(Span::styled(label, style));
+            let pill = Paragraph::new(Span::styled(label, style)).style(style);
             frame.render_widget(
                 pill,
-                Rect { x, y, width: pill_width, height: 1 },
+                Rect {
+                    x,
+                    y,
+                    width: pill_width,
+                    height: 1,
+                },
             );
             x += pill_width;
         }
@@ -376,8 +392,7 @@ fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState) {
 
     // Scrollbar if episodes exceed visible area
     if rows_needed > visible_rows {
-        let mut scrollbar_state = ScrollbarState::new(rows_needed)
-            .position(offset_rows);
+        let mut scrollbar_state = ScrollbarState::new(rows_needed).position(offset_rows);
         frame.render_stateful_widget(
             Scrollbar::new(ScrollbarOrientation::VerticalRight),
             inner,

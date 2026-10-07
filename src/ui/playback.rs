@@ -1,99 +1,77 @@
 //! Playback screen — ani-cli log stream + player controls.
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    layout::{Constraint, Direction, Layout, Margin, Rect},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, List, ListItem, Paragraph},
     Frame,
 };
 
-use crate::state::AppState;
+use crate::{state::AppState, ui::theme};
 
 /// Render the playback screen.
 pub fn render(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
-
+    frame.render_widget(Block::default().style(Style::default().bg(theme::BG)), area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // header: now playing
-            Constraint::Min(0),    // log stream
-            Constraint::Length(3), // controls
+            Constraint::Length(5),
+            Constraint::Min(0),
+            Constraint::Length(2),
         ])
-        .split(area);
-
-    render_header(frame, chunks[0], state);
-    render_logs(frame, chunks[1], state);
-    render_controls(frame, chunks[2]);
-}
-
-fn render_header(frame: &mut Frame, area: ratatui::layout::Rect, state: &AppState) {
-    let title = state
-        .now_playing
-        .as_deref()
-        .unwrap_or("Starting playback...");
-
-    let header = Paragraph::new(Line::from(vec![
-        Span::styled("▶ ", Style::default().fg(Color::Rgb(180, 0, 255)).add_modifier(Modifier::BOLD)),
-        Span::styled(title, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-    ]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
-            .style(Style::default().bg(Color::Rgb(10, 10, 16))),
+        .split(area.inner(Margin {
+            horizontal: 2,
+            vertical: 1,
+        }));
+    let title = state.now_playing.as_deref().unwrap_or("Starting playback…");
+    frame.render_widget(
+        Paragraph::new(title)
+            .style(
+                Style::default()
+                    .fg(theme::TEXT)
+                    .bg(theme::SURFACE)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .block(theme::panel("Now playing")),
+        chunks[0],
     );
-    frame.render_widget(header, area);
+    render_logs(frame, chunks[1], state);
+    let controls = Paragraph::new(Line::from(vec![
+        Span::styled("q", Style::default().fg(theme::ACCENT)),
+        Span::raw(" stop    "),
+        Span::styled("n", Style::default().fg(theme::ACCENT)),
+        Span::raw(" next episode    "),
+        Span::styled("Esc", Style::default().fg(theme::ACCENT)),
+        Span::raw(" return"),
+    ]))
+    .style(Style::default().fg(theme::MUTED).bg(theme::BG));
+    frame.render_widget(controls, chunks[2]);
 }
 
-fn render_logs(frame: &mut Frame, area: ratatui::layout::Rect, state: &AppState) {
-    // Show last N lines that fit in the area
-    let visible = area.height.saturating_sub(2) as usize;
-    let logs    = &state.playback_logs;
-    let start   = logs.len().saturating_sub(visible);
-
+fn render_logs(frame: &mut Frame, area: Rect, state: &AppState) {
+    let panel = theme::panel("Playback activity");
+    let visible = panel.inner(area).height as usize;
+    let logs = &state.playback_logs;
+    let start = logs.len().saturating_sub(visible);
     let items: Vec<ListItem> = logs[start..]
         .iter()
         .map(|line| {
-            let style = if line.contains("error") || line.contains("Error") {
-                Style::default().fg(Color::Rgb(255, 80, 80))
-            } else if line.contains("›") || line.starts_with('[') {
-                Style::default().fg(Color::Rgb(180, 0, 255))
+            let style = if line.to_ascii_lowercase().contains("error") {
+                Style::default().fg(theme::WARNING)
+            } else if line.contains('›') || line.starts_with('[') {
+                Style::default().fg(theme::ACCENT)
             } else {
-                Style::default().fg(Color::Rgb(180, 180, 180))
+                Style::default().fg(theme::MUTED)
             };
-            ListItem::new(Line::from(Span::styled(format!("  {}", line), style)))
+            ListItem::new(Line::from(Span::styled(line.as_str(), style)))
         })
         .collect();
-
-    let log_list = List::new(items).block(
-        Block::default()
-            .title(Span::styled(
-                " Output ",
-                Style::default().fg(Color::Rgb(160, 160, 160)),
-            ))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(40, 40, 60)))
-            .style(Style::default().bg(Color::Rgb(8, 8, 14))),
+    frame.render_widget(
+        List::new(items)
+            .style(Style::default().fg(theme::TEXT).bg(theme::SURFACE))
+            .block(panel),
+        area,
     );
-    frame.render_widget(log_list, area);
-}
-
-fn render_controls(frame: &mut Frame, area: ratatui::layout::Rect) {
-    let controls = Paragraph::new(Line::from(vec![
-        Span::styled(" q ", Style::default().fg(Color::Black).bg(Color::Rgb(180, 0, 255)).add_modifier(Modifier::BOLD)),
-        Span::styled(" Stop    ", Style::default().fg(Color::Rgb(180, 180, 180))),
-        Span::styled(" n ", Style::default().fg(Color::Black).bg(Color::Rgb(60, 60, 80)).add_modifier(Modifier::BOLD)),
-        Span::styled(" Next Ep    ", Style::default().fg(Color::Rgb(180, 180, 180))),
-        Span::styled(" Esc ", Style::default().fg(Color::Black).bg(Color::Rgb(60, 60, 80)).add_modifier(Modifier::BOLD)),
-        Span::styled(" Return", Style::default().fg(Color::Rgb(180, 180, 180))),
-    ]))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(40, 40, 60)))
-            .style(Style::default().bg(Color::Rgb(10, 10, 16))),
-    );
-    frame.render_widget(controls, area);
 }

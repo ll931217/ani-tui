@@ -1,110 +1,65 @@
 //! Playback query picker overlay.
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    layout::{Constraint, Direction, Layout},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Clear, List, ListItem, ListState, Paragraph},
     Frame,
 };
 
-use crate::state::AppState;
+use crate::{state::AppState, ui::theme};
 
 /// Render the playback query overlay on top of the detail screen.
 pub fn render_overlay(frame: &mut Frame, state: &AppState) {
-    let area = centered_rect(62, 52, frame.area());
+    let height = (state.playback_queries.len() as u16)
+        .saturating_add(9)
+        .min(22);
+    let area = theme::popup(frame.area(), 72, height);
     frame.render_widget(Clear, area);
-
+    let panel = theme::panel("Choose a title");
+    let inner = panel.inner(area);
+    frame.render_widget(panel, area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(2),
             Constraint::Min(0),
             Constraint::Length(2),
         ])
-        .split(area);
-
-    let header = Paragraph::new(Span::styled(
-        "Choose playback query",
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-    ))
-    .block(
-        Block::default()
-            .title(Span::styled(
-                " ▶ Playback Query ",
-                Style::default()
-                    .fg(Color::Rgb(180, 0, 255))
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-            .style(Style::default().bg(Color::Rgb(15, 15, 22))),
+        .split(inner);
+    frame.render_widget(
+        Paragraph::new("Pick the matching title to start playback.")
+            .style(Style::default().fg(theme::MUTED).bg(theme::SURFACE)),
+        chunks[0],
     );
-    frame.render_widget(header, chunks[0]);
-
     let items: Vec<ListItem> = state
         .playback_queries
         .iter()
-        .enumerate()
-        .map(|(i, query)| {
-            let style = if i == state.playback_query_cursor {
-                Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Rgb(60, 0, 100))
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Rgb(205, 205, 215))
-            };
-            let prefix = if i == state.playback_query_cursor { "▶ " } else { "  " };
-            ListItem::new(Line::from(Span::styled(format!("{prefix}{query}"), style)))
-        })
+        .map(|query| ListItem::new(format!(" {query}")))
         .collect();
-
     let mut list_state = ListState::default().with_selected(Some(state.playback_query_cursor));
     frame.render_stateful_widget(
-        List::new(items).block(
-            Block::default()
-                .borders(Borders::LEFT | Borders::RIGHT)
-                .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-                .style(Style::default().bg(Color::Rgb(12, 12, 18))),
-        ),
+        List::new(items)
+            .style(Style::default().fg(theme::TEXT).bg(theme::SURFACE))
+            .highlight_style(
+                Style::default()
+                    .fg(theme::ACCENT)
+                    .bg(theme::PANEL)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("› "),
         chunks[1],
         &mut list_state,
     );
-
     let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" Enter ", Style::default().fg(Color::Black).bg(Color::White)),
-        Span::raw(" Play  "),
-        Span::styled(" Esc ", Style::default().fg(Color::Black).bg(Color::Rgb(90, 90, 110))),
-        Span::raw(" Back  "),
-        Span::styled(" j/k ", Style::default().fg(Color::Black).bg(Color::Rgb(180, 0, 255))),
-        Span::raw(" Change query"),
+        Span::styled("Enter", Style::default().fg(theme::ACCENT)),
+        Span::raw(" play    "),
+        Span::styled("j/k", Style::default().fg(theme::ACCENT)),
+        Span::raw(" choose    "),
+        Span::styled("Esc", Style::default().fg(theme::ACCENT)),
+        Span::raw(" back"),
     ]))
-    .block(
-        Block::default()
-            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-            .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-            .style(Style::default().bg(Color::Rgb(12, 12, 18))),
-    );
+    .style(Style::default().fg(theme::MUTED).bg(theme::SURFACE));
     frame.render_widget(footer, chunks[2]);
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }
