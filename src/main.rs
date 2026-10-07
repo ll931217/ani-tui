@@ -193,7 +193,10 @@ async fn main() -> anyhow::Result<()> {
                 Screen::Playback => ui::playback::render(frame, &state),
                 Screen::Search   => {
                     render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
-                    ui::search::render_overlay(frame, &state);
+                    // Covered base images must not consume a native transmission.
+                    // Search posters are visible, so enable native rendering now.
+                    posters.set_overlay(false);
+                    ui::search::render_overlay(frame, &state, &mut posters);
                 }
                 Screen::Help => {
                     render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
@@ -855,12 +858,12 @@ async fn handle_search(
         }
 
         // Cursor movement uses arrows so letter keys still work for typing.
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Right => {
             if state.search_cursor + 1 < state.search_results.len() {
                 state.search_cursor += 1;
             }
         }
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Left => {
             state.search_cursor = state.search_cursor.saturating_sub(1);
         }
 
