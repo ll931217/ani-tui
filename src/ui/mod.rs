@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod components;
 pub mod detail;
 pub mod help;

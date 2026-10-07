@@ -35,6 +35,7 @@ pub fn render_overlay(frame: &mut Frame) {
                 ("Esc", "Back / close (restores prior related detail)"),
                 ("/", "Open search"),
                 ("s", "Open settings"),
+                ("a", "Accounts and progress (Home / Detail / Settings)"),
                 ("!", "Open setup / dependency checks"),
                 ("+", "Add to / remove from watchlist"),
                 ("n", "Play next episode from Detail"),

@@ -33,6 +33,7 @@ enum AppMessage {
     /// Home screen data loaded / refreshed
     HomeData(Box<ui::home::HomeData>),
     AiredEpisodes(i64, u64, Option<u32>),
+    TrackingResult(Vec<String>),
     /// A log line from ani-cli stdout or stderr
     PlaybackLog(String),
     /// ani-cli process exited
@@ -74,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── App state ─────────────────────────────────────────────────────────────
     let mut state     = AppState::new();
+    state.tracking_accounts = tracking::account_summary();
     let mut home_data = ui::home::HomeData::empty();
     let mut posters = ui::components::posters::PosterCache::new(pool.clone())?;
     refresh_dependency_status(&mut state);
@@ -88,6 +90,8 @@ async fn main() -> anyhow::Result<()> {
         posters.configure_terminal(&picker);
         state.picker = Some(picker);
     }
+
+    retry_tracking(&mut state, &pool, &tx);
 
     // ── Startup: kick off background sync ─────────────────────────────────────
     {
@@ -129,6 +133,14 @@ async fn main() -> anyhow::Result<()> {
                         if resume && state.screen == Screen::Detail {
                             begin_playback_flow(&mut state, &pool, &cfg, true).await;
                         }
+                    }
+                }
+                AppMessage::TrackingResult(messages) => {
+                    state.tracking_jobs = state.tracking_jobs.saturating_sub(1);
+                    state.tracking_accounts = tracking::account_summary();
+                    if !messages.is_empty() {
+                        if let Some(message) = messages.last() { state.show_toast(message.clone(), unix_now()); }
+                        state.tracking_messages = messages;
                     }
                 }
                 AppMessage::PlaybackLog(line) => {
@@ -190,6 +202,7 @@ async fn main() -> anyhow::Result<()> {
                 Screen::Help => Some((94, 36)),
                 Screen::Settings => Some((76, 21)),
                 Screen::Setup => Some((84, 25)),
+                Screen::Accounts => Some((ui::accounts::WIDTH, ui::accounts::HEIGHT)),
                 Screen::PlaybackOptions => Some((62, 18)),
                 Screen::PlaybackQuery => Some((72, (state.playback_queries.len() as u16).saturating_add(9).min(22))),
                 _ => None,
@@ -219,6 +232,10 @@ async fn main() -> anyhow::Result<()> {
                     // Search posters are visible, so enable native rendering now.
                     posters.set_overlay(false);
                     ui::search::render_overlay(frame, &state, &mut posters);
+                }
+                Screen::Accounts => {
+                    render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
+                    ui::accounts::render_overlay(frame, &state);
                 }
                 Screen::Help => {
                     render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
@@ -279,6 +296,12 @@ async fn handle_key(
         return;
     }
 
+    if key.code == KeyCode::Char('a') && matches!(state.screen, Screen::Home | Screen::Detail | Screen::Settings) {
+        state.tracking_accounts = tracking::account_summary();
+        state.open_accounts();
+        return;
+    }
+
     match state.screen {
         Screen::Home     => handle_home(key, state, home_data, pool, cfg, tx).await,
         Screen::Detail   => handle_detail(key, state, pool, cfg, tx).await,
@@ -289,7 +312,27 @@ async fn handle_key(
         Screen::Help     => { state.go_back(); }
         Screen::Settings => handle_settings(key, state, cfg).await,
         Screen::Setup    => handle_setup(key, state).await,
+        Screen::Accounts => match key.code {
+            KeyCode::Down | KeyCode::Char('j') => state.accounts_scroll = state.accounts_scroll.saturating_add(1).min(60),
+            KeyCode::Up | KeyCode::Char('k') => state.accounts_scroll = state.accounts_scroll.saturating_sub(1),
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('a') => state.go_back(),
+            KeyCode::Char('r') => {
+                state.tracking_accounts = tracking::account_summary();
+                if state.tracking_jobs == 0 { retry_tracking(state, pool, tx); }
+            }
+            _ => {}
+        },
     }
+}
+
+fn retry_tracking(state: &mut AppState, pool: &sqlx::SqlitePool, tx: &tokio::sync::mpsc::Sender<AppMessage>) {
+    state.tracking_jobs += 1;
+    let pool = pool.clone();
+    let tx = tx.clone();
+    tokio::spawn(async move {
+        let result = tracking::retry_pending(&pool, unix_now()).await;
+        let _ = tx.send(AppMessage::TrackingResult(result)).await;
+    });
 }
 
 // ── Home screen ───────────────────────────────────────────────────────────────
@@ -1085,10 +1128,7 @@ async fn start_playback(
         if let Some(message) = messages.first() {
             state.show_toast(message.clone(), now);
         }
-        let pool2 = pool.clone();
-        tokio::spawn(async move {
-            let _ = tracking::retry_pending(&pool2, now).await;
-        });
+        retry_tracking(state, pool, tx);
     }
 
     let stdout = child.stdout.take();

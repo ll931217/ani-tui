@@ -25,6 +25,8 @@ pub enum Screen {
     Settings,
     /// Dependency / onboarding overlay
     Setup,
+    /// Connected tracking accounts and pending synchronization status.
+    Accounts,
 }
 
 /// Which category row the cursor is on (Home screen).
@@ -197,6 +199,10 @@ pub struct AppState {
 
     /// Which anime the last launched playback belongs to
     pub last_played_anime_id: Option<i64>,
+    pub tracking_accounts: Vec<crate::tracking::AccountSummary>,
+    pub tracking_messages: Vec<String>,
+    pub tracking_jobs: usize,
+    pub accounts_scroll: u16,
 }
 
 impl AppState {
@@ -253,6 +259,10 @@ impl AppState {
             watched_episodes: HashSet::new(),
             last_played:      None,
             last_played_anime_id: None,
+            tracking_accounts: Vec::new(),
+            tracking_messages: Vec::new(),
+            tracking_jobs: 0,
+            accounts_scroll: 0,
         }
     }
 
@@ -295,7 +305,7 @@ impl AppState {
                     Screen::Home
                 }
             }
-            Screen::Search | Screen::Help | Screen::Settings | Screen::Setup => {
+            Screen::Search | Screen::Help | Screen::Settings | Screen::Setup | Screen::Accounts => {
                 self.overlay_base.clone()
             }
             Screen::Home     => {
@@ -344,6 +354,12 @@ impl AppState {
     pub fn open_help(&mut self) {
         self.overlay_base = self.current_base_screen();
         self.screen = Screen::Help;
+    }
+
+    pub fn open_accounts(&mut self) {
+        self.accounts_scroll = 0;
+        self.overlay_base = self.current_base_screen();
+        self.screen = Screen::Accounts;
     }
 
     /// Open the settings overlay.
@@ -507,7 +523,7 @@ impl AppState {
             Screen::Detail | Screen::Playback | Screen::PlaybackQuery | Screen::PlaybackOptions => {
                 Screen::Detail
             }
-            Screen::Search | Screen::Help | Screen::Settings | Screen::Setup => self.overlay_base.clone(),
+            Screen::Search | Screen::Help | Screen::Settings | Screen::Setup | Screen::Accounts => self.overlay_base.clone(),
             Screen::Home => Screen::Home,
         }
     }
@@ -604,6 +620,19 @@ mod tests {
             has_dub:       0,
             updated_at:    0,
         }
+    }
+
+    #[test]
+    fn accounts_overlay_preserves_detail_and_resets_scroll() {
+        let mut state = AppState::new();
+        state.open_detail(dummy_anime(1));
+        state.accounts_scroll = 12;
+        state.open_accounts();
+        assert_eq!(state.screen, Screen::Accounts);
+        assert_eq!(state.current_base_screen(), Screen::Detail);
+        assert_eq!(state.accounts_scroll, 0);
+        state.go_back();
+        assert_eq!(state.screen, Screen::Detail);
     }
 
     #[test]
