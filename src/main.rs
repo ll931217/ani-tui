@@ -71,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
     // ── App state ─────────────────────────────────────────────────────────────
     let mut state     = AppState::new();
     let mut home_data = ui::home::HomeData::empty();
+    let mut posters = ui::components::posters::PosterCache::new(pool.clone())?;
     refresh_dependency_status(&mut state);
     if !state.has_ani_cli || !state.has_any_player() {
         state.open_setup();
@@ -80,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
     // guess_protocol() probes the terminal — must happen after EnterAlternateScreen.
     if let Ok(mut picker) = ratatui_image::picker::Picker::from_termios() {
         picker.guess_protocol();
+        posters.configure_terminal(&picker);
         state.picker = Some(picker);
     }
 
@@ -177,7 +179,7 @@ async fn main() -> anyhow::Result<()> {
                     if state.is_loading {
                         render_loading(frame);
                     } else {
-                        ui::home::render(frame, &mut state, &home_data);
+                        ui::home::render(frame, &mut state, &home_data, &mut posters);
                     }
                 }
                 Screen::Detail   => ui::detail::render(frame, &mut state),
@@ -191,19 +193,19 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Screen::Playback => ui::playback::render(frame, &state),
                 Screen::Search   => {
-                    render_base_screen(frame, &mut state, &home_data, &base_screen);
+                    render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
                     ui::search::render_overlay(frame, &state);
                 }
                 Screen::Help => {
-                    render_base_screen(frame, &mut state, &home_data, &base_screen);
+                    render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
                     ui::help::render_overlay(frame);
                 }
                 Screen::Settings => {
-                    render_base_screen(frame, &mut state, &home_data, &base_screen);
+                    render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
                     ui::settings::render_overlay(frame, &state, &cfg);
                 }
                 Screen::Setup => {
-                    render_base_screen(frame, &mut state, &home_data, &base_screen);
+                    render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
                     ui::setup::render_overlay(frame, &state, &cfg);
                 }
             }
@@ -1174,6 +1176,7 @@ fn render_base_screen(
     state: &mut AppState,
     home_data: &ui::home::HomeData,
     base_screen: &Screen,
+    posters: &mut ui::components::posters::PosterCache,
 ) {
     match base_screen {
         Screen::Detail if state.selected_anime.is_some() => ui::detail::render(frame, state),
@@ -1181,7 +1184,7 @@ fn render_base_screen(
             if state.is_loading {
                 render_loading(frame);
             } else {
-                ui::home::render(frame, state, home_data);
+                ui::home::render(frame, state, home_data, posters);
             }
         }
     }

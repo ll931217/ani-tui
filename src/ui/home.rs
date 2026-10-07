@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use crate::{
     db::cache::Anime,
     state::{AppState, CategoryRow},
-    ui::components::cover::HalfblockCover,
+    ui::components::{cover::HalfblockCover, posters::PosterCache},
 };
 
 /// Width of each anime card in the row (chars)
@@ -24,7 +24,8 @@ const CARD_HEIGHT: u16 = 10;
 const CARD_GAP: u16    = 1;
 
 /// Render the full home screen.
-pub fn render(frame: &mut Frame, state: &mut AppState, categories: &HomeData) {
+pub fn render(frame: &mut Frame, state: &mut AppState, categories: &HomeData, posters: &mut PosterCache) {
+    posters.poll();
     let area = frame.area();
     let banner_anime = active_banner_anime(state, categories).or(categories.featured.as_ref());
 
@@ -38,7 +39,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState, categories: &HomeData) {
         .split(area);
 
     render_featured(frame, chunks[0], state, banner_anime, categories);
-    render_rows(frame, chunks[2], state, categories);
+    render_rows(frame, chunks[2], state, categories, posters);
 }
 
 /// Featured banner at the top — highlights the first trending anime.
@@ -315,7 +316,7 @@ fn active_banner_anime<'a>(state: &AppState, data: &'a HomeData) -> Option<&'a A
 }
 
 /// Render all category rows.
-fn render_rows(frame: &mut Frame, area: Rect, state: &mut AppState, data: &HomeData) {
+fn render_rows(frame: &mut Frame, area: Rect, state: &mut AppState, data: &HomeData, posters: &mut PosterCache) {
     let rows: Vec<(String, &str, &[Anime])> = vec![
         ("▶ Continue Watching".to_string(), "continue_watching", &data.continue_watching),
         ("♥ My Watchlist".to_string(),      "watchlist",         &data.watchlist),
@@ -371,12 +372,10 @@ fn render_rows(frame: &mut Frame, area: Rect, state: &mut AppState, data: &HomeD
                 frame,
                 row_areas[i],
                 state,
-                label,
-                key,
-                items,
+                (label, key, items),
                 *key == active_key,
-                &data.recommended_reasons,
-                &data.progress_labels,
+                data,
+                posters,
             );
         }
     }
@@ -387,13 +386,12 @@ fn render_row(
     frame:     &mut Frame,
     area:      Rect,
     state:     &mut AppState,
-    label:     &str,
-    key:       &str,
-    items:     &[Anime],
+    row: (&str, &str, &[Anime]),
     is_active: bool,
-    recommended_reasons: &HashMap<i64, String>,
-    progress_labels: &HashMap<i64, String>,
+    data: &HomeData,
+    posters: &mut PosterCache,
 ) {
+    let (label, key, items) = row;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1), Constraint::Min(0)])
@@ -431,12 +429,12 @@ fn render_row(
         };
         if rect.x + rect.width <= card_area.x + card_area.width {
             let reason = if key == "recommended" {
-                recommended_reasons.get(&anime.id).map(String::as_str)
+                data.recommended_reasons.get(&anime.id).map(String::as_str)
             } else {
                 None
             };
-            let progress = progress_labels.get(&anime.id).map(String::as_str);
-            render_card(frame, rect, anime, is_active && i == 0, reason, progress);
+            let progress = data.progress_labels.get(&anime.id).map(String::as_str);
+            render_card(frame, rect, anime, is_active && i == 0, reason, progress, posters);
         }
     }
 }
@@ -450,6 +448,7 @@ fn render_card(
     selected: bool,
     reason: Option<&str>,
     progress: Option<&str>,
+    posters: &mut PosterCache,
 ) {
     if area.height < 3 {
         return;
@@ -498,11 +497,7 @@ fn render_card(
         ])
         .split(content_area);
 
-    // Home cards intentionally keep the stable halfblock renderer.
-    frame.render_widget(
-        HalfblockCover { anime_id: anime.id, title: anime.display_title() },
-        chunks[0],
-    );
+    posters.render(frame, chunks[0], anime);
 
     // Title
     let title = Paragraph::new(Span::styled(
@@ -554,24 +549,7 @@ fn render_card(
     }));
     frame.render_widget(meta, chunks[2]);
 
-    if selected && content_area.width > 2 {
-        let badge = Rect {
-            x: content_area.x.saturating_add(1),
-            y: content_area.y,
-            width: content_area.width.saturating_sub(2).min(10),
-            height: 1,
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                " Browsing ",
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(240, 240, 245))
-                    .add_modifier(Modifier::BOLD),
-            )),
-            badge,
-        );
-    }
+
 }
 
 fn truncate_reason(reason: &str, max_chars: usize) -> String {
