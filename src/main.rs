@@ -4,6 +4,7 @@ mod db;
 mod error;
 mod services;
 mod state;
+mod tracking;
 mod ui;
 
 use anyhow::Context;
@@ -58,6 +59,8 @@ async fn main() -> anyhow::Result<()> {
     let pool    = db::init(db_path.to_str().unwrap_or(":memory:"))
         .await
         .context("Failed to initialise database")?;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if tracking::handle_cli(&args, &pool).await? { return Ok(()); }
 
     // ── Terminal setup ────────────────────────────────────────────────────────
     enable_raw_mode()?;
@@ -1072,14 +1075,19 @@ async fn start_playback(
 
     state.show_toast(format!("Launching Episode {} in external player", episode), unix_now());
 
-    // Record watch history as soon as playback starts
+    // Save launch progress locally before any network synchronization waits.
     if let Some(ref anime) = state.selected_anime {
-        let pool2    = pool.clone();
-        let anime_id = anime.id;
-        let now      = unix_now();
-        state.watched_episodes.insert(episode);
+        let now = unix_now();
+        if db::user::record_watched(pool, anime.id, episode as i64, now).await.is_ok() {
+            state.watched_episodes.insert(episode);
+        }
+        let messages = tracking::queue_progress(pool, anime, episode).await;
+        if let Some(message) = messages.first() {
+            state.show_toast(message.clone(), now);
+        }
+        let pool2 = pool.clone();
         tokio::spawn(async move {
-            let _ = db::user::record_watched(&pool2, anime_id, episode as i64, now).await;
+            let _ = tracking::retry_pending(&pool2, now).await;
         });
     }
 
