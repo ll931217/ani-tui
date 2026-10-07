@@ -438,8 +438,7 @@ async fn handle_home(
                 .await;
                 match result {
                     Ok(data) => { let _ = tx2.send(AppMessage::HomeData(Box::new(data))).await; }
-                    Err(e)   => {
-                        eprintln!("Refresh error: {e}");
+                    Err(_)   => {
                         let _ = tx2.send(AppMessage::HomeData(Box::new(ui::home::HomeData::empty()))).await;
                     }
                 }
