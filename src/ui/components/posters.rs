@@ -41,6 +41,7 @@ pub struct PosterCache {
     permits: Arc<Semaphore>,
     clock: u64,
     picker: Picker,
+    overlay: bool,
 }
 
 impl PosterCache {
@@ -58,6 +59,7 @@ impl PosterCache {
             clock: 0,
             // Two square image pixels per terminal cell, using halfblocks only.
             picker: Picker::new((1, 2)),
+            overlay: false,
         })
     }
 
@@ -67,6 +69,20 @@ impl PosterCache {
         if terminal.protocol_type == ProtocolType::Kitty {
             self.picker.protocol_type = ProtocolType::Kitty;
         }
+    }
+
+    pub fn set_overlay(&mut self, overlay: bool) {
+        self.overlay = overlay;
+    }
+
+    /// Two title lines and a one-cell border surround a 2:3 portrait poster.
+    pub fn card_height(&self, width: u16) -> u16 {
+        let (font_width, font_height) = self.picker.font_size;
+        let pixels = u32::from(width.saturating_sub(2)) * u32::from(font_width) * 3;
+        pixels
+            .div_ceil(u32::from(font_height).max(1) * 2)
+            .clamp(1, 60) as u16
+            + 4
     }
 
     pub fn poll(&mut self) {
@@ -91,14 +107,31 @@ impl PosterCache {
         if let Some(entry) = self.entries.get_mut(&anime.id) {
             entry.touched = self.clock;
             if let Some(image) = &entry.image {
+                // Do not consume a Kitty transmission that an overlay Clear
+                // might discard before the terminal receives this frame.
+                if self.overlay && self.picker.protocol_type == ProtocolType::Kitty {
+                    frame.render_widget(
+                        HalfblockCover {
+                            anime_id: anime.id,
+                            title: anime.display_title(),
+                        },
+                        area,
+                    );
+                    return;
+                }
                 let size = (area.width, area.height);
                 if !entry.covers.contains_key(&size) && entry.covers.len() >= 2 {
                     entry.covers.clear();
                 }
-                let cover = entry
-                    .covers
-                    .entry(size)
-                    .or_insert_with(|| self.picker.new_resize_protocol(image.clone()));
+                let cover = entry.covers.entry(size).or_insert_with(|| {
+                    let (fw, fh) = self.picker.font_size;
+                    let fitted = image.resize_to_fill(
+                        u32::from(area.width) * u32::from(fw).max(1),
+                        u32::from(area.height) * u32::from(fh).max(1),
+                        image::imageops::FilterType::Triangle,
+                    );
+                    self.picker.new_resize_protocol(fitted)
+                });
                 frame.render_stateful_widget(
                     StatefulImage::new(None).resize(Resize::Fit(None)),
                     area,
@@ -296,6 +329,47 @@ mod tests {
                 "cached image pixels missing at x={x}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn kitty_transmission_survives_initial_loading_under_an_overlay() {
+        let pool = crate::db::init(":memory:").await.unwrap();
+        let mut posters = PosterCache::new(pool).unwrap();
+        let mut picker = Picker::new((8, 16));
+        picker.protocol_type = ProtocolType::Kitty;
+        posters.configure_terminal(&picker);
+        assert_eq!(posters.card_height(22), 19);
+        posters.entries.insert(
+            1,
+            Entry {
+                image: decode(png()).await,
+                covers: HashMap::new(),
+                task: None,
+                retry_at: None,
+                touched: 0,
+            },
+        );
+        let anime = anime();
+        let mut terminal = Terminal::new(TestBackend::new(8, 8)).unwrap();
+        posters.set_overlay(true);
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                posters.render(frame, area, &anime);
+                frame.render_widget(ratatui::widgets::Clear, area);
+            })
+            .unwrap();
+        assert!(posters.entries[&1].covers.is_empty());
+        posters.set_overlay(false);
+        terminal
+            .draw(|frame| posters.render(frame, frame.area(), &anime))
+            .unwrap();
+        assert!(terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .any(|cell| cell.symbol().contains("\x1b_G")));
     }
 
     #[tokio::test]

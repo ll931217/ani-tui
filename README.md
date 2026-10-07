@@ -40,7 +40,7 @@ It is built for local-first use: metadata is cached in SQLite, recommendations a
 
 - **Curated home screen** — featured banner + category rows (Continue Watching, Watchlist, Recommended, Trending, Popular, Top Rated, Seasonal)
 - **Detail screen** — cover art, metadata, scrollable episode pills with watched indicators
-- **Real cover images** — Kitty Graphics Protocol on supported terminals (Ghostty); halfblock fallback everywhere else
+- **Real cover images** — portrait posters in home rows using Kitty Graphics Protocol on supported terminals (Kitty, Ghostty); actual image pixels via halfblocks elsewhere. Visible posters load in the background with four concurrent downloads, SQLite persistence, and a bounded in-memory cache.
 - **Heuristic recommendation engine** — local-first `Because You Watched` and `More Like This` rows built from watch history, genres, format, recency, and cached popularity signals
 - **Playback via ani-cli** — detached external-player handoff with next-episode (`n`) directly from the detail screen
 - **Watch history** — episodes marked watched on play, persist across sessions
@@ -84,7 +84,8 @@ Before running `ani-tui`, make sure these runtime dependencies are installed:
   - `vlc` is also supported
 - A terminal with truecolor support is recommended
   - banner and detail images work on supported terminals
-  - `Home` row cards intentionally use the stable halfblock cover renderer
+  - `Home` row cards use native Kitty images when available and halfblock images otherwise; missing or failed images show colored placeholders
+  - poster frames keep a 2:3 portrait ratio based on terminal cell dimensions, with titles and ratings beneath them
 
 ### Verify Prerequisites
 
@@ -297,7 +298,8 @@ src/
     settings.rs   — Settings overlay
     setup.rs      — Dependency / onboarding overlay
     components/
-      cover.rs    — Halfblock cover renderer + Kitty image support
+      cover.rs    — Colored placeholders for unavailable images
+      posters.rs  — Background poster loading, bounded cache, and native/halfblock rendering
   state/mod.rs    — AppState, Screen enum, navigation helpers
   config.rs       — Config loading/saving
   error.rs        — AppError + Result type

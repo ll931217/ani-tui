@@ -18,13 +18,12 @@ use crate::{
 
 /// Width of each anime card in the row (chars)
 const CARD_WIDTH: u16  = 22;
-/// Height of each anime card (rows)
-const CARD_HEIGHT: u16 = 10;
 /// Gap between cards
 const CARD_GAP: u16    = 1;
 
 /// Render the full home screen.
 pub fn render(frame: &mut Frame, state: &mut AppState, categories: &HomeData, posters: &mut PosterCache) {
+    posters.set_overlay(state.screen != crate::state::Screen::Home);
     posters.poll();
     let area = frame.area();
     let banner_anime = active_banner_anime(state, categories).or(categories.featured.as_ref());
@@ -335,8 +334,8 @@ fn render_rows(frame: &mut Frame, area: Rect, state: &mut AppState, data: &HomeD
         return;
     }
 
-    // Each row = 1 (label) + CARD_HEIGHT (cards) + 1 (gap)
-    let row_height  = 1 + CARD_HEIGHT + 1;
+    // Poster height follows the terminal cell aspect ratio.
+    let row_height  = posters.card_height(CARD_WIDTH) + 2;
     let max_rows_that_fit = (area.height / row_height).max(1);
     let visible_rows      = row_count.min(max_rows_that_fit);
     let constraints: Vec<Constraint> = (0..visible_rows)
@@ -425,7 +424,7 @@ fn render_row(
             x,
             y:      card_area.y,
             width:  CARD_WIDTH,
-            height: CARD_HEIGHT,
+            height: posters.card_height(CARD_WIDTH).min(card_area.height),
         };
         if rect.x + rect.width <= card_area.x + card_area.width {
             let reason = if key == "recommended" {
@@ -485,7 +484,7 @@ fn render_card(
             Block::default().style(Style::default().bg(Color::Rgb(10, 10, 16))),
             area,
         );
-        area
+        area.inner(Margin { horizontal: 1, vertical: 1 })
     };
 
     let chunks = Layout::default()
@@ -548,8 +547,6 @@ fn render_card(
         Color::Rgb(15, 15, 20)
     }));
     frame.render_widget(meta, chunks[2]);
-
-
 }
 
 fn truncate_reason(reason: &str, max_chars: usize) -> String {

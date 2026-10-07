@@ -30,7 +30,7 @@ const QUALITY_CHOICES: [config::Quality; 5] = [
 /// Messages sent from background tokio tasks to the UI event loop.
 enum AppMessage {
     /// Home screen data loaded / refreshed
-    HomeData(ui::home::HomeData),
+    HomeData(Box<ui::home::HomeData>),
     /// A log line from ani-cli stdout or stderr
     PlaybackLog(String),
     /// ani-cli process exited
@@ -99,10 +99,10 @@ async fn main() -> anyhow::Result<()> {
             )
             .await;
             match result {
-                Ok(data) => { let _ = tx2.send(AppMessage::HomeData(data)).await; }
+                Ok(data) => { let _ = tx2.send(AppMessage::HomeData(Box::new(data))).await; }
                 Err(e)   => {
                     eprintln!("Sync error: {e}");
-                    let _ = tx2.send(AppMessage::HomeData(ui::home::HomeData::empty())).await;
+                    let _ = tx2.send(AppMessage::HomeData(Box::new(ui::home::HomeData::empty()))).await;
                 }
             }
         });
@@ -114,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
         while let Ok(msg) = rx.try_recv() {
             match msg {
                 AppMessage::HomeData(data) => {
-                    home_data        = data;
+                    home_data        = *data;
                     state.is_loading = false;
                     refresh_home_cover(&mut state, &home_data, &pool, &tx);
                 }
@@ -371,10 +371,10 @@ async fn handle_home(
                 )
                 .await;
                 match result {
-                    Ok(data) => { let _ = tx2.send(AppMessage::HomeData(data)).await; }
+                    Ok(data) => { let _ = tx2.send(AppMessage::HomeData(Box::new(data))).await; }
                     Err(e)   => {
                         eprintln!("Refresh error: {e}");
-                        let _ = tx2.send(AppMessage::HomeData(ui::home::HomeData::empty())).await;
+                        let _ = tx2.send(AppMessage::HomeData(Box::new(ui::home::HomeData::empty()))).await;
                     }
                 }
             });
@@ -690,14 +690,12 @@ async fn handle_detail(
             }
         }
 
-        KeyCode::Char('n') => {
-            if state.detail_focus == state::DetailFocus::Episodes {
-                let current = state.selected_episode.unwrap_or(1);
-                let max = state.episode_list.last().copied().unwrap_or(1);
-                if current < max {
-                    state.selected_episode = Some(current + 1);
-                    begin_playback_flow(state, pool, cfg, false).await;
-                }
+        KeyCode::Char('n') if state.detail_focus == state::DetailFocus::Episodes => {
+            let current = state.selected_episode.unwrap_or(1);
+            let max = state.episode_list.last().copied().unwrap_or(1);
+            if current < max {
+                state.selected_episode = Some(current + 1);
+                begin_playback_flow(state, pool, cfg, false).await;
             }
         }
 
@@ -984,15 +982,13 @@ async fn handle_playback(
             state.go_back();
         }
         // Next episode without leaving playback
-        KeyCode::Char('n') => {
-            if state.selected_anime.is_some() {
-                let ep  = state.selected_episode.unwrap_or(1);
-                let max = state.episode_list.last().copied().unwrap_or(1);
-                if ep < max {
-                    let next = ep + 1;
-                    state.selected_episode = Some(next);
-                    begin_playback_flow(state, pool, cfg, false).await;
-                }
+        KeyCode::Char('n') if state.selected_anime.is_some() => {
+            let ep  = state.selected_episode.unwrap_or(1);
+            let max = state.episode_list.last().copied().unwrap_or(1);
+            if ep < max {
+                let next = ep + 1;
+                state.selected_episode = Some(next);
+                begin_playback_flow(state, pool, cfg, false).await;
             }
         }
         _ => {}
