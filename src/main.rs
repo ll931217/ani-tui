@@ -258,9 +258,9 @@ async fn handle_key(
     match state.screen {
         Screen::Home     => handle_home(key, state, home_data, pool, cfg, tx).await,
         Screen::Detail   => handle_detail(key, state, pool, cfg, tx).await,
-        Screen::PlaybackQuery => handle_playback_query(key, state, pool, cfg, tx).await,
+        Screen::PlaybackQuery => handle_playback_query(key, state, pool, cfg).await,
         Screen::PlaybackOptions => handle_playback_options(key, state, pool, cfg, tx).await,
-        Screen::Playback => handle_playback(key, state, pool, cfg, tx).await,
+        Screen::Playback => handle_playback(key, state, pool, cfg).await,
         Screen::Search   => handle_search(key, state, pool, tx).await,
         Screen::Help     => { state.go_back(); }
         Screen::Settings => handle_settings(key, state, cfg).await,
@@ -740,7 +740,6 @@ async fn handle_playback_query(
     state: &mut AppState,
     pool:  &sqlx::SqlitePool,
     cfg:   &config::Config,
-    _tx:   &tokio::sync::mpsc::Sender<AppMessage>,
 ) {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => state.go_back(),
@@ -978,7 +977,6 @@ async fn handle_playback(
     state: &mut AppState,
     pool:  &sqlx::SqlitePool,
     cfg:   &config::Config,
-    _tx:   &tokio::sync::mpsc::Sender<AppMessage>,
 ) {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
