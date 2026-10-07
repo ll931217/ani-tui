@@ -37,7 +37,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState, categories: &HomeData, po
         Span::styled("ani", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
         Span::styled("  /  Discover", Style::default().fg(theme::TEXT)),
     ]);
-    frame.render_widget(Paragraph::new(header), chunks[0]);
+    frame.render_widget(Paragraph::new(header).style(Style::default().bg(theme::BG)), chunks[0]);
     let anime = active_banner_anime(state, categories).or(categories.featured.as_ref());
     render_featured(frame, chunks[1], state, anime, categories, posters);
     render_rows(frame, chunks[3], state, categories, posters);
@@ -46,7 +46,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState, categories: &HomeData, po
         Span::styled("j k", Style::default().fg(theme::TEXT)), Span::styled(" collections    ", Style::default().fg(theme::MUTED)),
         Span::styled("Enter", Style::default().fg(theme::TEXT)), Span::styled(" details    ", Style::default().fg(theme::MUTED)),
         Span::styled("/", Style::default().fg(theme::ACCENT)), Span::styled(" search    s settings    ? help    q quit", Style::default().fg(theme::MUTED)),
-    ])), chunks[4]);
+    ])).style(Style::default().bg(theme::BG)), chunks[4]);
 }
 
 fn render_featured(frame: &mut Frame, area: Rect, state: &mut AppState, anime: Option<&Anime>, data: &HomeData, posters: &mut PosterCache) {
@@ -75,7 +75,7 @@ fn render_featured(frame: &mut Frame, area: Rect, state: &mut AppState, anime: O
         Line::from(vec![Span::styled(format!("★ {score}"), Style::default().fg(theme::WARNING)), Span::styled(metadata, Style::default().fg(theme::MUTED))]),
         Line::from(Span::styled(anime.genre_list().join("  /  "), Style::default().fg(theme::MUTED))),
         Line::from(""),
-        Line::from(Span::styled(truncate_reason(anime.description.as_deref().unwrap_or("No synopsis available."), columns[2].width as usize * 2), Style::default().fg(theme::TEXT))),
+        Line::from(Span::styled(truncate_reason(&theme::plain_text(anime.description.as_deref().unwrap_or("No synopsis available.")), columns[2].width as usize * 2), Style::default().fg(theme::TEXT))),
         Line::from(""),
         Line::from(vec![
             Span::styled(format!(" r  {next} "), Style::default().fg(theme::BG).bg(theme::ACCENT).add_modifier(Modifier::BOLD)),
@@ -86,9 +86,9 @@ fn render_featured(frame: &mut Frame, area: Rect, state: &mut AppState, anime: O
     let text_areas = Layout::default().direction(Direction::Vertical).constraints([
         Constraint::Length(3), Constraint::Length(1), Constraint::Min(0), Constraint::Length(1),
     ]).split(columns[2]);
-    frame.render_widget(Paragraph::new(lines[..3].to_vec()), text_areas[0]);
-    frame.render_widget(Paragraph::new(lines[4].clone()).wrap(Wrap { trim: true }), text_areas[2]);
-    frame.render_widget(Paragraph::new(lines[6].clone()), text_areas[3]);
+    frame.render_widget(Paragraph::new(lines[..3].to_vec()).style(Style::default().bg(theme::SURFACE)), text_areas[0]);
+    frame.render_widget(Paragraph::new(lines[4].clone()).style(Style::default().bg(theme::SURFACE)).wrap(Wrap { trim: true }), text_areas[2]);
+    frame.render_widget(Paragraph::new(lines[6].clone()).style(Style::default().bg(theme::SURFACE)), text_areas[3]);
 }
 
 fn active_banner_anime<'a>(state: &AppState, data: &'a HomeData) -> Option<&'a Anime> {
@@ -126,7 +126,7 @@ fn render_rows(frame: &mut Frame, area: Rect, state: &mut AppState, data: &HomeD
     }
 
     // Poster height follows the terminal cell aspect ratio.
-    let row_height  = posters.card_height(CARD_WIDTH) + 2;
+    let row_height  = posters.card_height(CARD_WIDTH) + 3;
     let max_rows_that_fit = (area.height / row_height).max(1);
     let visible_rows      = row_count.min(max_rows_that_fit);
     let constraints: Vec<Constraint> = (0..visible_rows)
@@ -200,7 +200,7 @@ fn render_row(
     let label_widget = Paragraph::new(Line::from(Span::styled(
         format!("{}   {}/{}", label, state.row_cursor(key) + 1, items.len()),
         label_style,
-    )));
+    ))).style(Style::default().bg(theme::BG));
     frame.render_widget(label_widget, chunks[0]);
 
     // Selection moves inside the viewport; scrolling starts at its edges.

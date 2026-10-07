@@ -38,6 +38,7 @@ It is built for local-first use: metadata is cached in SQLite, recommendations a
 
 ## Features
 
+- **Amp visual theme** — black surfaces, cream text, warm orange accents, rounded dialogs, and consistent spacing matching the Alacritty Amp palette.
 - **Curated home screen** — featured banner + category rows (Continue Watching, Watchlist, Recommended, Trending, Popular, Top Rated, Seasonal)
 - **Detail screen** — cover art, metadata, scrollable episode pills with watched indicators
 - **Real cover images** — portrait posters in home rows using Kitty Graphics Protocol on supported terminals (Kitty, Ghostty); actual image pixels via halfblocks elsewhere. Visible posters load in the background with four concurrent downloads, SQLite persistence, and a bounded in-memory cache.

@@ -1127,7 +1127,7 @@ async fn download_cover_image(
 fn render_loading(frame: &mut ratatui::Frame) {
     use ratatui::{
         layout::{Alignment, Constraint, Direction, Layout},
-        style::{Color, Modifier, Style},
+        style::{Modifier, Style},
         text::{Line, Span},
         widgets::Paragraph,
     };
@@ -1146,19 +1146,19 @@ fn render_loading(frame: &mut ratatui::Frame) {
         Line::from(Span::styled(
             "ani-tui",
             Style::default()
-                .fg(Color::Rgb(180, 0, 255))
+                .fg(ui::theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            "Fetching content...",
-            Style::default().fg(Color::Rgb(120, 120, 140)),
+            "Loading your collections…",
+            Style::default().fg(ui::theme::MUTED),
         )),
     ])
     .alignment(Alignment::Center)
-    .style(Style::default().bg(Color::Rgb(8, 8, 14)));
+    .style(Style::default().bg(ui::theme::BG));
 
     frame.render_widget(
-        Paragraph::new("").style(Style::default().bg(Color::Rgb(8, 8, 14))),
+        Paragraph::new("").style(Style::default().bg(ui::theme::BG)),
         area,
     );
     frame.render_widget(msg, vert[1]);

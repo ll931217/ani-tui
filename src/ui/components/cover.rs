@@ -1,8 +1,6 @@
-//! Anime cover art rendering.
-//!
-//! - Ghostty / kitty-protocol terminals → real image via ratatui-image
-//! - COSMIC / other terminals           → colored halfblock with per-show unique color
+//! Quiet Amp placeholders while real poster images load.
 
+use crate::ui::theme;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -12,45 +10,13 @@ use ratatui::{
 
 // ─── Color generation ─────────────────────────────────────────────────────────
 
-/// Convert HSL to RGB.  h ∈ [0,360), s ∈ [0,1], l ∈ [0,1].
-fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
-    let m = l - c / 2.0;
-
-    let (r1, g1, b1) = if h < 60.0 {
-        (c, x, 0.0)
-    } else if h < 120.0 {
-        (x, c, 0.0)
-    } else if h < 180.0 {
-        (0.0, c, x)
-    } else if h < 240.0 {
-        (0.0, x, c)
-    } else if h < 300.0 {
-        (x, 0.0, c)
-    } else {
-        (c, 0.0, x)
-    };
-
-    (
-        ((r1 + m) * 255.0) as u8,
-        ((g1 + m) * 255.0) as u8,
-        ((b1 + m) * 255.0) as u8,
-    )
-}
-
-/// Deterministic color pair from anime ID.
-/// Same ID → same colors every time (no flicker, no storage needed).
+/// Deterministic neutral surfaces, using only the Amp palette.
 pub fn color_from_id(anime_id: i64) -> (Color, Color) {
-    // Knuth multiplicative hash → hue in [0, 360)
-    let hash    = (anime_id.unsigned_abs().wrapping_mul(2_654_435_761)) as u32;
-    let hue     = (hash % 360) as f32;
-    let hue2    = (hue + 40.0) % 360.0;
-
-    let (r, g, b)    = hsl_to_rgb(hue,  0.65, 0.55); // primary — vibrant
-    let (r2, g2, b2) = hsl_to_rgb(hue2, 0.50, 0.30); // secondary — darker complement
-
-    (Color::Rgb(r, g, b), Color::Rgb(r2, g2, b2))
+    if anime_id.unsigned_abs().is_multiple_of(2) {
+        (theme::PANEL, theme::SURFACE)
+    } else {
+        (theme::SURFACE, theme::BG)
+    }
 }
 
 // ─── Halfblock cover widget ───────────────────────────────────────────────────
@@ -94,7 +60,6 @@ impl<'a> Widget for HalfblockCover<'a> {
         let text_y   = area.y + title_row;
 
         if text_y < buf.area.height {
-            let (r, g, b) = hsl_to_rgb(0.0, 0.0, 1.0); // white text
             for (i, ch) in abbrev.chars().enumerate() {
                 let cx = text_x + i as u16;
                 if cx < buf.area.width {
@@ -102,7 +67,7 @@ impl<'a> Widget for HalfblockCover<'a> {
                     cell.set_char(ch);
                     cell.set_style(
                         Style::default()
-                            .fg(Color::Rgb(r, g, b))
+                            .fg(theme::MUTED)
                             .bg(primary),
                     );
                 }
@@ -161,30 +126,6 @@ mod tests {
     fn test_color_from_id_handles_negative() {
         // Should not panic
         let _ = color_from_id(-999);
-    }
-
-    #[test]
-    fn test_hsl_to_rgb_red() {
-        let (r, g, b) = hsl_to_rgb(0.0, 1.0, 0.5);
-        assert_eq!(r, 255);
-        assert_eq!(g, 0);
-        assert_eq!(b, 0);
-    }
-
-    #[test]
-    fn test_hsl_to_rgb_white() {
-        let (r, g, b) = hsl_to_rgb(0.0, 0.0, 1.0);
-        assert_eq!(r, 255);
-        assert_eq!(g, 255);
-        assert_eq!(b, 255);
-    }
-
-    #[test]
-    fn test_hsl_to_rgb_black() {
-        let (r, g, b) = hsl_to_rgb(0.0, 0.0, 0.0);
-        assert_eq!(r, 0);
-        assert_eq!(g, 0);
-        assert_eq!(b, 0);
     }
 
     #[test]

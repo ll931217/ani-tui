@@ -39,3 +39,38 @@ pub fn popup(area: Rect, width: u16, height: u16) -> Rect {
         height,
     )
 }
+
+/// Older cached synopses can contain HTML even when AniList requests plain text.
+pub fn plain_text(value: &str) -> String {
+    let mut text = String::new();
+    let mut chars = value.chars().peekable();
+    let mut in_tag = false;
+    while let Some(ch) = chars.next() {
+        if ch == '<' && chars.peek().is_some_and(|c| c.is_ascii_alphabetic() || *c == '/') {
+            in_tag = true;
+        } else if ch == '>' && in_tag {
+            in_tag = false;
+            text.push(' ');
+        } else if !in_tag {
+            text.push(ch);
+        }
+    }
+    for (entity, decoded) in [
+        ("&nbsp;", " "), ("&quot;", "\""), ("&#39;", "'"),
+        ("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"),
+    ] {
+        text = text.replace(entity, decoded);
+    }
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_synopses_are_readable_without_losing_plain_comparisons() {
+        assert_eq!(plain_text("<b>One</b><br><br>Two &amp; three"), "One Two & three");
+        assert_eq!(plain_text("A < B &gt; C"), "A < B > C");
+    }
+}
