@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Video quality preference
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Quality {
     #[serde(rename = "360p")]
@@ -14,6 +14,7 @@ pub enum Quality {
     #[serde(rename = "720p")]
     P720,
     #[serde(rename = "1080p")]
+    #[default]
     P1080,
     Best,
 }
@@ -27,12 +28,6 @@ impl Quality {
             Quality::P1080 => "1080p",
             Quality::Best  => "best",
         }
-    }
-}
-
-impl Default for Quality {
-    fn default() -> Self {
-        Quality::P1080
     }
 }
 
@@ -88,23 +83,12 @@ impl Default for CacheConfig {
 }
 
 /// Root config struct — persisted to ~/.config/ani-tui/config.toml
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     pub quality:    Quality,
     pub audio_mode: AudioMode,
     pub player:     Player,
     pub cache:      CacheConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            quality:    Quality::default(),
-            audio_mode: AudioMode::default(),
-            player:     Player::default(),
-            cache:      CacheConfig::default(),
-        }
-    }
 }
 
 impl Config {

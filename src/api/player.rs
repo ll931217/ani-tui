@@ -27,20 +27,17 @@ pub struct PlayOptions {
 /// Build the ani-cli command arguments for a given play request.
 /// Pure function — separated from spawn so it can be tested without forking.
 pub fn build_args(opts: &PlayOptions) -> Vec<String> {
-    let mut args = Vec::new();
-
-    // Auto-pick the first ani-cli search match to avoid dropping into the
-    // interactive series chooser for ambiguous titles.
-    args.push("-S".to_string());
-    args.push("1".to_string());
-
-    // Episode selection
-    args.push("-e".to_string());
-    args.push(opts.episode.to_string());
-
-    // Quality
-    args.push("-q".to_string());
-    args.push(opts.quality.clone());
+    let mut args = vec![
+        // Auto-pick the first match for ambiguous titles.
+        "-S".to_string(),
+        "1".to_string(),
+        // Episode selection
+        "-e".to_string(),
+        opts.episode.to_string(),
+        // Quality
+        "-q".to_string(),
+        opts.quality.clone(),
+    ];
 
     // Dub flag
     if opts.dub {

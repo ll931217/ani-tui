@@ -329,12 +329,11 @@ fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState, _anime: &Ani
     let selected_ep     = state.selected_episode.unwrap_or(1);
 
     // Render rows of episode pills
-    let rows_needed = (state.episode_list.len() + pills_per_row - 1) / pills_per_row;
+    let rows_needed = state.episode_list.len().div_ceil(pills_per_row);
     let visible_rows = inner.height.saturating_sub(1) as usize;
     let offset_rows  = state.episode_offset / pills_per_row;
 
-    let mut y = inner.y;
-    for row_idx in offset_rows..(offset_rows + visible_rows).min(rows_needed) {
+    for (y, row_idx) in (inner.y..).zip(offset_rows..(offset_rows + visible_rows).min(rows_needed)) {
         if y >= inner.y + inner.height {
             break;
         }
@@ -373,7 +372,6 @@ fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState, _anime: &Ani
             );
             x += pill_width;
         }
-        y += 1;
     }
 
     // Scrollbar if episodes exceed visible area
