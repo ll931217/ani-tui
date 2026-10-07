@@ -235,7 +235,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Screen::Accounts => {
                     render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);
-                    ui::accounts::render_overlay(frame, &state);
+                    ui::accounts::render_overlay(frame, &mut state);
                 }
                 Screen::Help => {
                     render_base_screen(frame, &mut state, &home_data, &base_screen, &mut posters);

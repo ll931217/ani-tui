@@ -11,7 +11,7 @@ use crate::{state::AppState, ui::theme};
 pub const WIDTH: u16 = 88;
 pub const HEIGHT: u16 = 24;
 
-pub fn render_overlay(frame: &mut Frame, state: &AppState) {
+pub fn render_overlay(frame: &mut Frame, state: &mut AppState) {
     let area = theme::popup(frame.area(), WIDTH, HEIGHT);
     frame.render_widget(Clear, area);
     let panel = theme::panel("Accounts & progress");
@@ -50,6 +50,9 @@ pub fn render_overlay(frame: &mut Frame, state: &AppState) {
         }
     }
     let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).split(inner);
-    frame.render_widget(Paragraph::new(lines).style(Style::default().fg(theme::TEXT).bg(theme::SURFACE)).wrap(Wrap { trim: true }).scroll((state.accounts_scroll, 0)), chunks[0]);
+    let body = Paragraph::new(lines).style(Style::default().fg(theme::TEXT).bg(theme::SURFACE)).wrap(Wrap { trim: true });
+    let max_scroll = body.line_count(chunks[0].width).saturating_sub(usize::from(chunks[0].height)).min(usize::from(u16::MAX)) as u16;
+    state.accounts_scroll = state.accounts_scroll.min(max_scroll);
+    frame.render_widget(body.scroll((state.accounts_scroll, 0)), chunks[0]);
     frame.render_widget(Paragraph::new(vec![Line::from("j/k Scroll · r Refresh / retry"), Line::from("Esc Close")]).style(Style::default().fg(theme::ACCENT).bg(theme::SURFACE)), chunks[1]);
 }
