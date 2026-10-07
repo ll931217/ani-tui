@@ -3,9 +3,9 @@
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph, Wrap},
     Frame,
 };
 use std::collections::HashMap;
@@ -13,293 +13,82 @@ use std::collections::HashMap;
 use crate::{
     db::cache::Anime,
     state::{AppState, CategoryRow},
-    ui::components::{cover::HalfblockCover, posters::PosterCache},
+    ui::{components::posters::PosterCache, theme},
 };
 
 /// Width of each anime card in the row (chars)
 const CARD_WIDTH: u16  = 22;
 /// Gap between cards
-const CARD_GAP: u16    = 1;
+const CARD_GAP: u16    = 2;
 
 /// Render the full home screen.
 pub fn render(frame: &mut Frame, state: &mut AppState, categories: &HomeData, posters: &mut PosterCache) {
+    frame.render_widget(Block::default().style(Style::default().bg(theme::BG)), frame.area());
+    let area = frame.area().inner(Margin { horizontal: 2, vertical: 1 });
     posters.set_overlay(state.screen != crate::state::Screen::Home);
     posters.poll();
-    let area = frame.area();
-    state.visible_cards = (area.width / (CARD_WIDTH + CARD_GAP)).max(1) as usize;
+    state.visible_cards = ((area.width + CARD_GAP) / (CARD_WIDTH + CARD_GAP)).max(1) as usize;
     categories.normalize_selection(state);
-    let banner_anime = active_banner_anime(state, categories).or(categories.featured.as_ref());
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(10), // Featured banner
-            Constraint::Length(1),  // Spacer
-            Constraint::Min(0),     // Rows
-        ])
-        .split(area);
-
-    render_featured(frame, chunks[0], state, banner_anime, categories);
-    render_rows(frame, chunks[2], state, categories, posters);
+    let chunks = Layout::default().direction(Direction::Vertical).constraints([
+        Constraint::Length(2), Constraint::Length(9), Constraint::Length(1),
+        Constraint::Min(0), Constraint::Length(2),
+    ]).split(area);
+    let header = Line::from(vec![
+        Span::styled("ani", Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled("  /  Discover", Style::default().fg(theme::TEXT)),
+    ]);
+    frame.render_widget(Paragraph::new(header), chunks[0]);
+    let anime = active_banner_anime(state, categories).or(categories.featured.as_ref());
+    render_featured(frame, chunks[1], state, anime, categories, posters);
+    render_rows(frame, chunks[3], state, categories, posters);
+    frame.render_widget(Paragraph::new(Line::from(vec![
+        Span::styled("h l", Style::default().fg(theme::TEXT)), Span::styled(" select    ", Style::default().fg(theme::MUTED)),
+        Span::styled("j k", Style::default().fg(theme::TEXT)), Span::styled(" collections    ", Style::default().fg(theme::MUTED)),
+        Span::styled("Enter", Style::default().fg(theme::TEXT)), Span::styled(" details    ", Style::default().fg(theme::MUTED)),
+        Span::styled("/", Style::default().fg(theme::ACCENT)), Span::styled(" search    s settings    ? help    q quit", Style::default().fg(theme::MUTED)),
+    ])), chunks[4]);
 }
 
-/// Featured banner at the top — highlights the first trending anime.
-fn render_featured(frame: &mut Frame, area: Rect, state: &mut AppState, anime: Option<&Anime>, data: &HomeData) {
+fn render_featured(frame: &mut Frame, area: Rect, state: &mut AppState, anime: Option<&Anime>, data: &HomeData, posters: &mut PosterCache) {
     let Some(anime) = anime else {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default().bg(Color::Rgb(20, 20, 20)));
-        frame.render_widget(block, area);
+        let empty = theme::popup(area, 70, 7);
+        frame.render_widget(Paragraph::new("Search for an anime to start watching.").block(theme::panel("Your next watch")), empty);
         return;
     };
-
-    let banner = Block::default()
-        .borders(Borders::LEFT | Borders::TOP)
-        .border_style(Style::default().fg(Color::Rgb(180, 0, 255)))
-        .style(Style::default().bg(Color::Rgb(12, 12, 18)));
-    let inner = banner.inner(area);
-    frame.render_widget(banner, area);
-
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(20),
-            Constraint::Length(2),
-            Constraint::Min(0),
-        ])
-        .split(inner);
-
-    let title   = anime.display_title();
-    let genres  = anime.genre_list().join(" · ");
-    let score   = anime
-        .score
-        .map(|s| format!("★ {:.1}", s as f32 / 10.0))
-        .unwrap_or_else(|| "★ N/A".to_string());
-    let eps     = anime
-        .episodes
-        .map(|e| format!("{} eps", e))
-        .unwrap_or_else(|| "? eps".to_string());
-    let fmt     = anime.format.as_deref().unwrap_or("TV");
-    let status  = anime.status.as_deref().unwrap_or("Unknown");
-    let year    = anime
-        .season_year
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "?".to_string());
-    let in_watchlist = data.watchlist.iter().any(|item| item.id == anime.id);
-    let watchlist_label = if in_watchlist {
-        " - Remove "
-    } else {
-        " + Watchlist "
-    };
-    let play_label = if let Some(next_ep) = data.resume_next.get(&anime.id) {
-        format!(" Continue E{} ", next_ep)
-    } else {
-        " Start ".to_string()
-    };
-    let watched = state
-        .banner_progress
-        .filter(|(anime_id, _)| *anime_id == anime.id)
-        .map(|(_, watched)| watched)
-        .unwrap_or(0);
-    let progress = format!(
-        "{} / {} watched",
-        watched,
-        anime.episodes.map(|value| value.to_string()).unwrap_or_else(|| "?".to_string())
-    );
-    let desc    = anime
-        .description
-        .as_deref()
-        .unwrap_or("No description available.")
-        .chars()
-        .take(120)
-        .collect::<String>();
-    let launch_status = state
-        .last_played
-        .as_deref()
-        .filter(|_| state.last_played_anime_id == Some(anime.id));
-    let focus_label = match state.active_row {
-        CategoryRow::ContinueWatching => " Continue Watching ",
-        CategoryRow::Watchlist => " My Watchlist ",
-        CategoryRow::Recommended => " For You ",
-        CategoryRow::Trending => " Trending Now ",
-        CategoryRow::Popular => " Popular Picks ",
-        CategoryRow::TopRated => " Top Rated ",
-        CategoryRow::Seasonal => " Seasonal ",
-    };
-
-    let cover_frame = if cols[0].width > 4 {
-        cols[0].inner(Margin { horizontal: 1, vertical: 0 })
-    } else {
-        cols[0]
-    };
-    let cover_bg = Block::default().style(Style::default().bg(Color::Rgb(14, 14, 22)));
-    frame.render_widget(cover_bg, cover_frame);
-    let cover_inner = if cover_frame.width > 2 && cover_frame.height > 2 {
-        cover_frame.inner(Margin { horizontal: 1, vertical: 1 })
-    } else {
-        cover_frame
-    };
-
-    if state.has_image_support() && state.cover_state.is_some() && state.cover_anime_id == Some(anime.id) {
-        if let Some(ref mut cover) = state.cover_state {
-            let image_widget = ratatui_image::StatefulImage::new(None)
-                .resize(ratatui_image::Resize::Fit(None));
-            frame.render_stateful_widget(image_widget, cover_inner, cover);
-        }
-    } else if state.has_image_support() && state.cover_anime_id == Some(anime.id) {
-        let label = if state.cover_failed_anime_id == Some(anime.id) {
-            "Cover unavailable"
-        } else {
-            "Loading cover..."
-        };
-        let loading = Paragraph::new(label)
-            .style(Style::default().fg(Color::Rgb(160, 160, 180)).bg(Color::Rgb(14, 14, 22)))
-            .alignment(ratatui::layout::Alignment::Center);
-        frame.render_widget(loading, cover_inner);
-    } else {
-        frame.render_widget(
-            HalfblockCover { anime_id: anime.id, title: anime.display_title() },
-            cover_inner,
-        );
-    }
-    frame.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Rgb(60, 60, 80))),
-        cover_frame,
-    );
-
-    let meta_line = Line::from(vec![
-        Span::styled(
-            focus_label,
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Rgb(180, 0, 255))
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            format!(" {} ", score),
-            Style::default()
-                .fg(Color::Rgb(225, 225, 235))
-                .bg(Color::Rgb(28, 28, 38)),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            format!(" {} ", eps),
-            Style::default()
-                .fg(Color::Rgb(225, 225, 235))
-                .bg(Color::Rgb(28, 28, 38)),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            format!(" {} {} ", fmt, year),
-            Style::default()
-                .fg(Color::Rgb(225, 225, 235))
-                .bg(Color::Rgb(28, 28, 38)),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            format!(" {} ", status),
-            Style::default()
-                .fg(Color::Rgb(190, 190, 205))
-                .bg(Color::Rgb(20, 20, 28)),
-        ),
-    ]);
-
-    let mut content = vec![
+    frame.render_widget(Block::default().style(Style::default().bg(theme::SURFACE)), area);
+    let inner = area.inner(Margin { horizontal: 2, vertical: 1 });
+    let columns = Layout::default().direction(Direction::Horizontal).constraints([
+        Constraint::Length(10), Constraint::Length(3), Constraint::Min(0),
+    ]).split(inner);
+    posters.render(frame, columns[0], anime);
+    let score = anime.score.map(|s| format!("{:.1}", s as f32 / 10.0)).unwrap_or_else(|| "--".into());
+    let metadata = format!("   {}  ·  {}  ·  {}", anime.format.as_deref().unwrap_or("TV"),
+        anime.season_year.map(|year| year.to_string()).unwrap_or_else(|| "TBA".into()),
+        anime.episodes.map(|episodes| format!("{episodes} episodes")).unwrap_or_else(|| "Airing".into()));
+    let next = data.resume_next.get(&anime.id).map(|ep| format!("Resume E{ep}")).unwrap_or_else(|| "Start watching".into());
+    let watchlist = if data.watchlist.iter().any(|a| a.id == anime.id) { "- Remove from list" } else { "+ Watchlist" };
+    let watched = state.banner_progress.filter(|(id, _)| *id == anime.id).map(|(_, n)| n).unwrap_or(0);
+    let status = if state.last_played_anime_id == Some(anime.id) { "  Playing in your player".into() }
+        else if watched > 0 { format!("  {watched} watched") } else { String::new() };
+    let lines = [
+        Line::from(Span::styled(anime.display_title(), Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD))),
+        Line::from(vec![Span::styled(format!("★ {score}"), Style::default().fg(theme::WARNING)), Span::styled(metadata, Style::default().fg(theme::MUTED))]),
+        Line::from(Span::styled(anime.genre_list().join("  /  "), Style::default().fg(theme::MUTED))),
+        Line::from(""),
+        Line::from(Span::styled(truncate_reason(anime.description.as_deref().unwrap_or("No synopsis available."), columns[2].width as usize * 2), Style::default().fg(theme::TEXT))),
+        Line::from(""),
         Line::from(vec![
-            Span::styled(
-                " Selected ",
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                "Home Banner",
-                Style::default()
-                    .fg(Color::Rgb(150, 150, 170))
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(format!(" r  {next} "), Style::default().fg(theme::BG).bg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("    {watchlist}    d Details"), Style::default().fg(theme::TEXT)),
+            Span::styled(status, Style::default().fg(theme::SUCCESS)),
         ]),
-        Line::from(Span::styled(
-            title,
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )),
-        meta_line,
-        Line::from(vec![
-            Span::styled(
-                format!(" {} ", progress),
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(235, 235, 235))
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  "),
-            Span::styled(genres, Style::default().fg(Color::Rgb(180, 0, 255))),
-        ]),
-        Line::from(Span::styled(
-            desc,
-            Style::default().fg(Color::Rgb(200, 200, 200)),
-        )),
     ];
-
-    if let Some(status) = launch_status {
-        content.push(Line::from(""));
-        content.push(Line::from(vec![
-            Span::styled(
-                " External player launched ",
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(180, 0, 255))
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" "),
-            Span::styled(status, Style::default().fg(Color::Rgb(185, 185, 205))),
-        ]));
-    }
-
-    content.push(Line::from(""));
-    content.push(Line::from(vec![
-            Span::styled(
-                play_label,
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                watchlist_label,
-                Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Rgb(60, 60, 60)),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                " d Detail ",
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(210, 210, 210)),
-            ),
-            Span::raw("  "),
-            Span::styled(
-                " r Resume ",
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Rgb(180, 0, 255))
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
-
-    let block = Paragraph::new(content)
-        .style(Style::default().bg(Color::Rgb(12, 12, 18)))
-        .wrap(ratatui::widgets::Wrap { trim: true });
-    frame.render_widget(block, cols[2]);
+    let text_areas = Layout::default().direction(Direction::Vertical).constraints([
+        Constraint::Length(3), Constraint::Length(1), Constraint::Min(0), Constraint::Length(1),
+    ]).split(columns[2]);
+    frame.render_widget(Paragraph::new(lines[..3].to_vec()), text_areas[0]);
+    frame.render_widget(Paragraph::new(lines[4].clone()).wrap(Wrap { trim: true }), text_areas[2]);
+    frame.render_widget(Paragraph::new(lines[6].clone()), text_areas[3]);
 }
 
 fn active_banner_anime<'a>(state: &AppState, data: &'a HomeData) -> Option<&'a Anime> {
@@ -319,13 +108,13 @@ fn active_banner_anime<'a>(state: &AppState, data: &'a HomeData) -> Option<&'a A
 /// Render all category rows.
 fn render_rows(frame: &mut Frame, area: Rect, state: &mut AppState, data: &HomeData, posters: &mut PosterCache) {
     let rows: Vec<(String, &str, &[Anime])> = vec![
-        ("▶ Continue Watching".to_string(), "continue_watching", &data.continue_watching),
-        ("♥ My Watchlist".to_string(),      "watchlist",         &data.watchlist),
+        ("Continue watching".to_string(), "continue_watching", &data.continue_watching),
+        ("Your watchlist".to_string(),      "watchlist",         &data.watchlist),
         (recommended_label(data), "recommended",    &data.recommended),
-        ("🔥 Trending".to_string(),         "trending",          &data.trending),
-        ("⭐ Popular".to_string(),          "popular",           &data.popular),
-        ("🏆 Top Rated".to_string(),        "top_rated",         &data.top_rated),
-        ("📅 Seasonal".to_string(),         "seasonal",          &data.seasonal),
+        ("Trending now".to_string(),         "trending",          &data.trending),
+        ("Popular picks".to_string(),          "popular",           &data.popular),
+        ("Top rated".to_string(),        "top_rated",         &data.top_rated),
+        ("This season".to_string(),         "seasonal",          &data.seasonal),
     ];
 
     // Filter out empty rows
@@ -395,21 +184,21 @@ fn render_row(
     let (label, key, items) = row;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .constraints([Constraint::Length(2), Constraint::Min(0)])
         .split(area);
 
-    // Row label — purple when active, dim white otherwise
+    // A quiet section label and position counter orient navigation.
     let label_style = if is_active {
         Style::default()
-            .fg(Color::Rgb(180, 0, 255))
+            .fg(theme::ACCENT)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(Color::Rgb(160, 160, 160))
+            .fg(theme::MUTED)
             .add_modifier(Modifier::BOLD)
     };
     let label_widget = Paragraph::new(Line::from(Span::styled(
-        format!(" {}", label),
+        format!("{}   {}/{}", label, state.row_cursor(key) + 1, items.len()),
         label_style,
     )));
     frame.render_widget(label_widget, chunks[0]);
@@ -417,7 +206,7 @@ fn render_row(
     // Selection moves inside the viewport; scrolling starts at its edges.
     let card_area   = chunks[1];
     let offset      = state.row_offset(key);
-    let visible_n   = (card_area.width / (CARD_WIDTH + CARD_GAP)).max(1) as usize;
+    let visible_n   = ((card_area.width + CARD_GAP) / (CARD_WIDTH + CARD_GAP)).max(1) as usize;
     let visible_items: Vec<&Anime> = items.iter().skip(offset).take(visible_n).collect();
 
     for (i, anime) in visible_items.iter().enumerate() {
@@ -441,7 +230,7 @@ fn render_row(
 }
 
 /// Render a single anime card (cover + title + score).
-/// `selected` draws a purple border around the card to indicate it's the active selection.
+/// `selected` draws an Amp accent border around the card to indicate it's the active selection.
 fn render_card(
     frame: &mut Frame,
     area: Rect,
@@ -455,39 +244,11 @@ fn render_card(
         return;
     }
 
-    // When selected, draw a purple border and shrink the content area inward
-    let content_area = if selected {
-        let glow = Block::default().style(Style::default().bg(Color::Rgb(26, 10, 38)));
-        frame.render_widget(glow, area);
-        let border = Block::default()
-            .borders(Borders::ALL)
-            .border_style(
-                Style::default()
-                    .fg(Color::Rgb(180, 0, 255))
-                    .add_modifier(Modifier::BOLD),
-            );
-        let inner = border.inner(area);
-        frame.render_widget(border, area);
-        if area.width > 0 && area.height > 2 {
-            let accent = Rect {
-                x: area.x,
-                y: area.y,
-                width: 1,
-                height: area.height,
-            };
-            frame.render_widget(
-                Block::default().style(Style::default().bg(Color::Rgb(180, 0, 255))),
-                accent,
-            );
-        }
-        inner
-    } else {
-        frame.render_widget(
-            Block::default().style(Style::default().bg(Color::Rgb(10, 10, 16))),
-            area,
-        );
-        area.inner(Margin { horizontal: 1, vertical: 1 })
-    };
+    let border = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(if selected { theme::ACCENT } else { theme::BG }))
+        .style(Style::default().bg(if selected { theme::PANEL } else { theme::BG }));
+    let content_area = border.inner(area);
+    frame.render_widget(border, area);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -504,13 +265,13 @@ fn render_card(
     let title = Paragraph::new(Span::styled(
         anime.short_title(),
         Style::default()
-            .fg(Color::White)
-            .add_modifier(if selected { Modifier::BOLD | Modifier::UNDERLINED } else { Modifier::BOLD }),
+            .fg(theme::TEXT)
+            .add_modifier(Modifier::BOLD),
     ))
     .style(Style::default().bg(if selected {
-        Color::Rgb(22, 14, 30)
+        theme::PANEL
     } else {
-        Color::Rgb(15, 15, 20)
+        theme::BG
     }));
     frame.render_widget(title, chunks[1]);
 
@@ -533,20 +294,20 @@ fn render_card(
         }
     };
     let meta_color = if selected {
-        Color::Rgb(230, 230, 240)
+        theme::TEXT
     } else if reason.is_some() || progress.is_some() {
-        Color::Rgb(180, 0, 255)
+        theme::ACCENT
     } else {
-        Color::Rgb(160, 160, 160)
+        theme::MUTED
     };
     let meta      = Paragraph::new(Span::styled(
         meta_text,
         Style::default().fg(meta_color),
     ))
     .style(Style::default().bg(if selected {
-        Color::Rgb(22, 14, 30)
+        theme::PANEL
     } else {
-        Color::Rgb(15, 15, 20)
+        theme::BG
     }));
     frame.render_widget(meta, chunks[2]);
 }
@@ -563,9 +324,9 @@ fn truncate_reason(reason: &str, max_chars: usize) -> String {
 
 fn recommended_label(data: &HomeData) -> String {
     if let Some(seed) = data.continue_watching.first() {
-        format!("✨ Because You Watched {}", truncate_reason(seed.short_title().as_str(), 18))
+        format!("Because you watched {}", truncate_reason(seed.short_title().as_str(), 18))
     } else {
-        "✨ Because You Watched".to_string()
+        "Recommended for you".to_string()
     }
 }
 

@@ -8,3 +8,4 @@ pub mod playback;
 pub mod search;
 pub mod settings;
 pub mod setup;
+pub mod theme;
