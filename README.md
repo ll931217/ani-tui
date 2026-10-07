@@ -1,25 +1,24 @@
 # ani-tui
 
-A production-ready terminal UI for anime, powered by [ani-cli](https://github.com/pystardust/ani-cli).
+A poster-focused terminal UI for anime, powered by [ani-cli](https://github.com/pystardust/ani-cli).
+
+This is [ll931217's fork](https://github.com/ll931217/ani-tui) of [logando-al/ani-tui](https://github.com/logando-al/ani-tui), originally created by Logan. It retains the original MIT license and history, with a redesigned Amp interface, real portrait posters, and improved keyboard navigation.
 
 `ani-tui` is a keyboard-first desktop terminal experience for browsing anime, resuming watch progress, and handing playback off to an externally installed player through `ani-cli`.
 
 It is built for local-first use: metadata is cached in SQLite, recommendations are generated from your own watch behavior, and the app stays usable even when network access is limited.
 
-```
-╔══════════════════════════════════════════════════════════════════════════╗
-║  ani-tui                                                                 ║
-║  ▶ Continue Watching  ──────────────────────────────────────────────     ║
-║  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐  ║
-║  │  ████████████████  │  │  ████████████████  │  │  ████████████████  │  ║
-║  │  ████████████████  │  │  ████████████████  │  │  ████████████████  │  ║
-║  │  ████████████████  │  │  ████████████████  │  │  ████████████████  │  ║
-║  │  Attack on Titan   │  │  Demon Slayer      │  │  Jujutsu Kaisen    │  ║
-║  │  ★9.0 · TV         │  │  ★8.9 · TV         │  │  ★8.7 · TV         │  ║
-║  └────────────────────┘  └────────────────────┘  └────────────────────┘  ║
-║  🔥 Trending  ───────────────────────────────────────────────────────     ║
-╚══════════════════════════════════════════════════════════════════════════╝
-```
+## Changes in This Fork
+
+- One Amp palette across home, search, detail, playback, help, settings, and setup: dark surfaces, cream text, and warm orange selection accents.
+- Portrait covers on home cards, search results, and anime details, with background downloads and persistent caching.
+- Visible cover art behind dialogs; partially covered images use real halfblock pixels to avoid losing native image transmissions.
+- Consistent padding, quiet loading placeholders, and restored terminal colors after Kitty image rendering.
+- Home selection scrolls only when it crosses a visible row edge.
+- Episode navigation supports all four arrow keys and `h/j/k/l`, using the actual grid width and keeping selection visible on resize.
+- Cached synopsis HTML is cleaned up, and detail layout preserves episode navigation on smaller terminals.
+
+See [the fork guide](docs/FORK.md) for rendering behavior, palette values, and implementation details.
 
 ## What It Does
 
@@ -41,7 +40,7 @@ It is built for local-first use: metadata is cached in SQLite, recommendations a
 - **Amp visual theme** — black surfaces, cream text, warm orange accents, rounded dialogs, and consistent spacing matching the Alacritty Amp palette.
 - **Curated home screen** — featured banner + category rows (Continue Watching, Watchlist, Recommended, Trending, Popular, Top Rated, Seasonal)
 - **Detail screen** — cover art, metadata, scrollable episode pills with watched indicators
-- **Real cover images** — portrait posters in home rows using Kitty Graphics Protocol on supported terminals (Kitty, Ghostty); actual image pixels via halfblocks elsewhere. Visible posters load in the background with four concurrent downloads, SQLite persistence, and a bounded in-memory cache.
+- **Real cover images** — portrait posters in home rows, search, and details using Kitty Graphics Protocol on supported terminals (Kitty, Ghostty); actual image pixels via halfblocks elsewhere. Visible posters load in the background with four concurrent downloads, SQLite persistence, and a bounded in-memory cache.
 - **Heuristic recommendation engine** — local-first `Because You Watched` and `More Like This` rows built from watch history, genres, format, recency, and cached popularity signals
 - **Playback via ani-cli** — detached external-player handoff with next-episode (`n`) directly from the detail screen
 - **Watch history** — episodes marked watched on play, persist across sessions
@@ -52,27 +51,19 @@ It is built for local-first use: metadata is cached in SQLite, recommendations a
 
 ## Screenshots
 
-Current interface captures from the production v1 UI.
+Captured from this fork running in Kitty with native cover images.
 
-### Home Screen
+### Home
 
-![Home screen overview](docs/screenshots/home-screen.gif)
+![Amp home screen with portrait covers](docs/screenshots/amp-home.png)
 
-### Detail Screen
+### Search
 
-![Detail screen with related recommendations](docs/screenshots/detail-screen.png)
+![Poster search results with visible covers behind the dialog](docs/screenshots/amp-search.png)
 
-### Settings Overlay
+### Anime Details
 
-![Settings overlay](docs/screenshots/settings-overlay.png)
-
-### Playback Setup Overlay
-
-![Playback setup overlay](docs/screenshots/setup-overlay.png)
-
-### Related Recommendation Drill-In
-
-![Detail screen opened from a related recommendation](docs/screenshots/related-drill-in.png)
+![Amp detail screen with vertical episode navigation selecting E30](docs/screenshots/amp-detail.png)
 
 ## Prerequisites
 
@@ -84,8 +75,8 @@ Before running `ani-tui`, make sure these runtime dependencies are installed:
   - on macOS, `ani-tui` can use `iina` directly and will also fall back to it when `mpv` is missing
   - `vlc` is also supported
 - A terminal with truecolor support is recommended
-  - banner and detail images work on supported terminals
-  - `Home` row cards use native Kitty images when available and halfblock images otherwise; missing or failed images show colored placeholders
+  - home, search, and detail images share the same poster renderer
+  - posters use native Kitty images when available and halfblock image pixels otherwise; missing or failed images show quiet Amp placeholders
   - poster frames keep a 2:3 portrait ratio based on terminal cell dimensions, with titles and ratings beneath them
 
 ### Verify Prerequisites
@@ -112,88 +103,34 @@ If any command prints `not found`, install that dependency first and make sure i
 
 ## Installation
 
-### Install With Cargo (crates.io)
+Build this fork from source with the Rust toolchain installed:
 
 ```bash
-cargo install ani-tui-app
-```
-
-Then install the runtime dependencies listed below.
-
-### Install on macOS
-
-Primary path:
-
-```bash
-brew tap logando-al/tap
-brew install ani-tui
-```
-
-Homebrew formula source:
-- [logando-al/homebrew-tap](https://github.com/logando-al/homebrew-tap)
-
-Then install playback dependencies:
-
-```bash
-brew install curl grep aria2 ffmpeg git fzf yt-dlp
-brew install --cask iina
-```
-
-Install `ani-cli` separately and ensure it is on your `PATH`.
-
-### Install on Linux
-
-Option 1: download a release binary and place it on your path.
-
-```bash
-mkdir -p ~/.local/bin
-cp ./ani-tui ~/.local/bin/ani-tui
-chmod +x ~/.local/bin/ani-tui
-```
-
-Option 2: install from crates.io with Cargo.
-
-```bash
-cargo install ani-tui-app
-```
-
-Install runtime dependencies with your distro package manager, then install `ani-cli` separately.
-
-Debian / Ubuntu example:
-
-```bash
-sudo apt install mpv vlc curl grep aria2 ffmpeg fzf yt-dlp
-```
-
-Fedora example:
-
-```bash
-sudo dnf install mpv vlc curl grep aria2 ffmpeg fzf yt-dlp
-```
-
-Arch example:
-
-```bash
-sudo pacman -S mpv vlc curl grep aria2 ffmpeg fzf yt-dlp
-```
-
-### Build From Source
-
-```bash
-git clone https://github.com/logando-al/ani-tui.git
+git clone https://github.com/ll931217/ani-tui.git
 cd ani-tui
-cargo build --release
-# Copy binary to PATH
-cp target/release/ani-tui ~/.local/bin/
+cargo build --release --locked
+mkdir -p ~/.local/bin
+install -m755 target/release/ani-tui ~/.local/bin/ani-tui
 ```
+
+Or install directly with Cargo:
+
+```bash
+cargo install --git https://github.com/ll931217/ani-tui.git --locked ani-tui-app
+```
+
+Install `ani-cli` and a supported player separately. On Arch Linux, `mpv` can be installed with `sudo pacman -S mpv`.
+
+The upstream crates.io package, upstream Homebrew tap, and upstream release binaries do not include this fork's changes. This fork currently builds from source; its own release assets will appear on [GitHub Releases](https://github.com/ll931217/ani-tui/releases) when published.
 
 ## Running Tests
 
 Run the standard validation commands before opening a pull request or cutting a release:
 
 ```bash
-cargo check
-cargo test
+cargo check --all-targets --locked
+cargo test --locked
+cargo clippy --all-targets --locked -- -D warnings
 ```
 
 ## Usage
@@ -225,7 +162,8 @@ On first run, `ani-tui` will open the in-app setup screen automatically if playb
 #### Detail
 | Key | Action |
 |-----|--------|
-| `h` / `l` | Navigate episodes |
+| `h` / `l` or `←` / `→` | Move one episode left / right |
+| `j` / `k` or `↓` / `↑` | Move one episode row down / up |
 | `Tab` | Toggle focus between Episodes / More Like This |
 | `Enter` | Start / continue selected episode, or open focused related anime |
 | `+` | Toggle watchlist |
@@ -240,7 +178,7 @@ On first run, `ani-tui` will open the in-app setup screen automatically if playb
 | Key | Action |
 |-----|--------|
 | Type | Update search query |
-| `↑` / `↓` | Move cursor |
+| Arrow keys | Previous / next result; change page only past visible page edges |
 | `Enter` | Open detail |
 | `Esc` | Close |
 
@@ -294,12 +232,13 @@ src/
     home.rs       — Curated home screen
     detail.rs     — Anime detail + episode list
     playback.rs   — Log stream + controls
-    search.rs     — Search overlay
+    search.rs     — Portrait result grid
     help.rs       — Help overlay + toast notifications
     settings.rs   — Settings overlay
     setup.rs      — Dependency / onboarding overlay
+    theme.rs      — Shared Amp colors, dialog geometry, and readable synopsis text
     components/
-      cover.rs    — Colored placeholders for unavailable images
+      cover.rs    — Quiet Amp placeholders for unavailable images
       posters.rs  — Background poster loading, bounded cache, and native/halfblock rendering
   state/mod.rs    — AppState, Screen enum, navigation helpers
   config.rs       — Config loading/saving
@@ -333,25 +272,25 @@ If you want to contribute:
 - Run the project checks before opening a pull request:
 
 ```bash
-cargo check
-cargo test
+cargo check --all-targets --locked
+cargo test --locked
+cargo clippy --all-targets --locked -- -D warnings
 ```
 
 For larger changes, open an issue first so the direction can be agreed before implementation.
 
 ## Acknowledgements
 
+- [logando-al/ani-tui](https://github.com/logando-al/ani-tui), created by Logan, is the original project this fork builds on. Its source history and MIT copyright notice are preserved.
+
 - [`ani-cli`](https://github.com/pystardust/ani-cli) powers the playback handoff used by `ani-tui`
 - [`AniList`](https://anilist.co/) provides the metadata used for browsing, search, and cached catalog views
 
 `ani-tui` builds its own local UI, persistence, and heuristic recommendation flow, but playback depends on the external `ani-cli` tool. Credit to the `ani-cli` project for the playback engine this app integrates with.
 
-## Production Release
+## Releases
 
-- GitHub Releases are the source of truth for production binaries
-- macOS users should prefer the Homebrew tap
-- Linux users should prefer the release binary or `cargo install`
-- Use the release checklist in the repository before tagging a new version: `RELEASE-CHECKLIST.md`
+Source builds are the current installation path for this fork. Upstream distribution instructions are available in [the original project](https://github.com/logando-al/ani-tui). The executable is still named `ani-tui`, and the Rust package is `ani-tui-app`.
 
 ## License
 
