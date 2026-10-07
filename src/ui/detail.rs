@@ -65,7 +65,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState) {
         render_related(frame, chunks[2], state);
     }
     let episodes_idx = if state.detail_recommendations.is_empty() { 2 } else { 3 };
-    render_episodes(frame, chunks[episodes_idx], state, &anime);
+    render_episodes(frame, chunks[episodes_idx], state);
 }
 
 /// Top section: cover + metadata side by side.
@@ -303,7 +303,7 @@ fn render_related(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// Episode list section — horizontal scrolling pills.
-fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState, _anime: &Anime) {
+fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .title(Span::styled(
             " Episodes ",
