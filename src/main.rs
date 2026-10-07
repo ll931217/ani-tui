@@ -31,6 +31,7 @@ const QUALITY_CHOICES: [config::Quality; 5] = [
 enum AppMessage {
     /// Home screen data loaded / refreshed
     HomeData(Box<ui::home::HomeData>),
+    AiredEpisodes(i64, u64, Option<u32>),
     /// A log line from ani-cli stdout or stderr
     PlaybackLog(String),
     /// ani-cli process exited
@@ -118,6 +119,14 @@ async fn main() -> anyhow::Result<()> {
                     home_data.normalize_selection(&mut state);
                     state.is_loading = false;
                     refresh_home_cover(&mut state, &home_data, &pool, &tx);
+                }
+                AppMessage::AiredEpisodes(id, request, count) => {
+                    if state.apply_episode_result(id, request, count) {
+                        let resume = std::mem::take(&mut state.resume_when_ready);
+                        if resume && state.screen == Screen::Detail {
+                            begin_playback_flow(&mut state, &pool, &cfg, true).await;
+                        }
+                    }
                 }
                 AppMessage::PlaybackLog(line) => {
                     state.push_log(line);
@@ -441,7 +450,8 @@ async fn open_detail_from_anime(
         state.cover_failed_anime_id = None;
         trigger_cover_download(anime.clone(), pool.clone(), tx.clone());
     }
-    state.open_detail(anime);
+    state.open_detail(anime.clone());
+    trigger_episode_check(state, anime, pool.clone(), tx.clone());
     state.set_watched_episodes(watched.into_iter().map(|e| e as u32).collect());
     state.detail_recommendation_reasons = related
         .iter()
@@ -453,6 +463,18 @@ async fn open_detail_from_anime(
         .collect();
 }
 
+fn trigger_episode_check(
+    state: &AppState, anime: db::cache::Anime, pool: sqlx::SqlitePool,
+    tx: tokio::sync::mpsc::Sender<AppMessage>,
+) {
+    if !state.episodes_loading { return; }
+    let request = state.episode_request;
+    tokio::spawn(async move {
+        let count = api::airing::aired_count(&pool, &anime, unix_now()).await;
+        let _ = tx.send(AppMessage::AiredEpisodes(anime.id, request, count)).await;
+    });
+}
+
 async fn begin_playback_flow(
     state: &mut AppState,
     pool:  &sqlx::SqlitePool,
@@ -462,6 +484,16 @@ async fn begin_playback_flow(
     let Some(anime) = state.selected_anime.clone() else {
         return;
     };
+
+    if state.episodes_loading {
+        state.resume_when_ready = true;
+        state.show_toast("Checking aired episodes before playback…", unix_now());
+        return;
+    }
+    if !state.selected_episode.is_some_and(|ep| state.episode_list.contains(&ep)) {
+        state.show_toast(state.episode_message(), unix_now());
+        return;
+    }
 
     if force_resume {
         state.selected_episode = Some(state.next_unwatched_episode());
@@ -605,6 +637,7 @@ async fn handle_detail(
                     let in_wl = db::user::is_in_watchlist(pool, anime.id).await.unwrap_or(false);
                     let watched = db::user::get_watched_episodes(pool, anime.id).await.unwrap_or_default();
                     state.in_watchlist = in_wl;
+                    trigger_episode_check(state, anime.clone(), pool.clone(), tx.clone());
                     state.set_watched_episodes(watched.into_iter().map(|e| e as u32).collect());
                     if state.cover_anime_id != Some(anime.id) || state.cover_state.is_none() {
                         state.cover_anime_id = Some(anime.id);
@@ -1004,6 +1037,11 @@ async fn start_playback(
     tx:      &tokio::sync::mpsc::Sender<AppMessage>,
     pool:    &sqlx::SqlitePool,
 ) {
+    if !state.episode_list.contains(&episode) {
+        state.screen = Screen::Detail;
+        state.show_toast("That episode has not been confirmed as aired.", unix_now());
+        return;
+    }
     state.stop_player();
     state.playback_logs.clear();
     state.now_playing = Some(format!("{} — Episode {}", title, episode));

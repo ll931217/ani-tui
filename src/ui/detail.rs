@@ -146,9 +146,11 @@ fn render_metadata(frame: &mut Frame, area: Rect, state: &AppState, anime: &Anim
     } else {
         "  Sub only"
     };
-    let play_label = match state.selected_episode.unwrap_or(1) {
-        1 => " Start E1 ".to_string(),
-        ep => format!(" Continue E{} ", ep),
+    let play_label = match state.selected_episode {
+        Some(1) => " Start E1 ".to_string(),
+        Some(ep) => format!(" Continue E{ep} "),
+        None if state.episodes_loading => " Checking episodes… ".to_string(),
+        None => " No confirmed aired episodes ".to_string(),
     };
     let watchlist_label = if state.in_watchlist {
         " + Remove "
@@ -198,8 +200,8 @@ fn render_metadata(frame: &mut Frame, area: Rect, state: &AppState, anime: &Anim
         Span::styled(
             play_label,
             Style::default()
-                .fg(theme::BG)
-                .bg(theme::ACCENT)
+                .fg(if state.selected_episode.is_some() { theme::BG } else { theme::MUTED })
+                .bg(if state.selected_episode.is_some() { theme::ACCENT } else { theme::SURFACE })
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
@@ -302,13 +304,17 @@ fn render_related(frame: &mut Frame, area: Rect, state: &AppState) {
 
 /// Episode list section — horizontal scrolling pills.
 fn render_episodes(frame: &mut Frame, area: Rect, state: &mut AppState) {
-    let block = theme::panel("Episodes");
+    let episode_title = match (state.episode_count, state.selected_anime.as_ref().and_then(|anime| anime.episodes)) {
+        (Some(aired), Some(total)) if i64::from(aired) < total => format!("Episodes · {aired} aired / {total} planned"),
+        _ => "Episodes".to_owned(),
+    };
+    let block = theme::panel(&episode_title);
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     if state.episode_list.is_empty() {
-        let msg = Paragraph::new("No episode data available.")
+        let msg = Paragraph::new(state.episode_message())
             .style(Style::default().fg(theme::MUTED).bg(theme::SURFACE));
         frame.render_widget(msg, inner);
         return;

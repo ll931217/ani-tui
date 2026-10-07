@@ -51,6 +51,8 @@ struct DetailSnapshot {
     anime: Anime,
     in_watchlist: bool,
     watched_episodes: HashSet<u32>,
+    episode_count: Option<u32>,
+    episodes_loading: bool,
     detail_recommendations: Vec<Anime>,
     detail_recommendation_reasons: HashMap<i64, String>,
     detail_focus: DetailFocus,
@@ -82,7 +84,7 @@ pub struct AppState {
     /// Detail screen: the anime being viewed
     pub selected_anime:   Option<Anime>,
 
-    /// Detail screen: episode list (1..=N generated from anime.episodes)
+    /// Detail screen: confirmed aired episodes only.
     pub episode_list:     Vec<u32>,
 
     /// Detail screen: which episode is highlighted
@@ -90,6 +92,10 @@ pub struct AppState {
 
     /// Detail screen: episode list scroll offset
     pub episode_offset:   usize,
+    pub episode_count: Option<u32>,
+    pub episodes_loading: bool,
+    pub resume_when_ready: bool,
+    pub episode_request: u64,
     pub episode_columns: usize,
     pub episode_rows: usize,
 
@@ -206,6 +212,10 @@ impl AppState {
             episode_list:     Vec::new(),
             selected_episode: None,
             episode_offset:   0,
+            episode_count: None,
+            episodes_loading: false,
+            resume_when_ready: false,
+            episode_request: 0,
             episode_columns: 1,
             episode_rows: 1,
             search_query:     String::new(),
@@ -297,10 +307,14 @@ impl AppState {
 
     /// Open the detail screen for a given anime.
     pub fn open_detail(&mut self, anime: Anime) {
-        let total = anime.episodes.unwrap_or(0) as u32;
+        self.episode_request = self.episode_request.wrapping_add(1);
+        let count = crate::api::airing::known_count(&anime);
         let reuse_cover = self.cover_anime_id == Some(anime.id) && self.cover_state.is_some();
-        self.episode_list     = (1..=total.max(1)).collect();
-        self.selected_episode = Some(1);
+        self.episode_count = count;
+        self.episodes_loading = count.is_none();
+        self.resume_when_ready = false;
+        self.episode_list = (1..=count.unwrap_or(0)).collect();
+        self.selected_episode = self.episode_list.first().copied();
         self.episode_offset   = 0;
         self.cover_anime_id   = Some(anime.id);
         if !reuse_cover {
@@ -365,7 +379,7 @@ impl AppState {
     pub fn set_watched_episodes(&mut self, watched: HashSet<u32>) {
         self.watched_episodes = watched;
         let next = self.next_unwatched_episode();
-        self.selected_episode = Some(next);
+        self.selected_episode = (!self.episode_list.is_empty()).then_some(next);
         self.episode_offset = 0;
         self.update_episode_viewport(self.episode_columns, self.episode_rows);
     }
@@ -390,6 +404,29 @@ impl AppState {
         let target = index.saturating_add_signed(horizontal + vertical * columns as isize).min(self.episode_list.len() - 1);
         self.selected_episode = Some(self.episode_list[target]);
         self.update_episode_viewport(columns, self.episode_rows);
+    }
+
+    pub fn apply_episode_result(&mut self, id: i64, request: u64, count: Option<u32>) -> bool {
+        if self.episode_request != request || !self.selected_anime.as_ref().is_some_and(|anime| anime.id == id) { return false; }
+        self.set_episode_count(count);
+        true
+    }
+
+    /// Apply confirmed airing data, preserving watch progress and selection.
+    pub fn set_episode_count(&mut self, count: Option<u32>) {
+        self.episode_count = count;
+        self.episodes_loading = false;
+        self.episode_list = (1..=count.unwrap_or(0).min(10_000)).collect();
+        if !self.selected_episode.is_some_and(|ep| self.episode_list.contains(&ep)) {
+            self.selected_episode = (!self.episode_list.is_empty()).then(|| self.next_unwatched_episode());
+        }
+        self.update_episode_viewport(self.episode_columns, self.episode_rows);
+    }
+
+    pub fn episode_message(&self) -> &'static str {
+        if self.episodes_loading { "Checking aired episodes…" }
+        else if self.episode_count == Some(0) { "No episodes have aired yet." }
+        else { "Aired episodes could not be confirmed. Reopen details to retry." }
     }
 
     /// Return the next unwatched episode, defaulting to 1 when all known episodes are watched.
@@ -498,6 +535,8 @@ impl AppState {
             anime,
             in_watchlist: self.in_watchlist,
             watched_episodes: self.watched_episodes.clone(),
+            episode_count: self.episode_count,
+            episodes_loading: self.episodes_loading,
             detail_recommendations: self.detail_recommendations.clone(),
             detail_recommendation_reasons: self.detail_recommendation_reasons.clone(),
             detail_focus: self.detail_focus.clone(),
@@ -514,8 +553,11 @@ impl AppState {
             return false;
         };
 
-        let total = snapshot.anime.episodes.unwrap_or(0) as u32;
-        self.episode_list = (1..=total.max(1)).collect();
+        self.episode_request = self.episode_request.wrapping_add(1);
+        self.episode_count = snapshot.episode_count;
+        self.episodes_loading = snapshot.episodes_loading;
+        self.resume_when_ready = false;
+        self.episode_list = (1..=snapshot.episode_count.unwrap_or(0)).collect();
         self.selected_anime = Some(snapshot.anime);
         self.in_watchlist = snapshot.in_watchlist;
         self.detail_recommendations = snapshot.detail_recommendations;
@@ -551,7 +593,7 @@ mod tests {
             title_native:  None,
             description:   None,
             episodes:      Some(12),
-            status:        None,
+            status:        Some("FINISHED".into()),
             season:        None,
             season_year:   None,
             score:         Some(80),
@@ -562,6 +604,61 @@ mod tests {
             has_dub:       0,
             updated_at:    0,
         }
+    }
+
+    #[test]
+    fn previous_visit_cannot_overwrite_reopened_anime_or_consume_resume() {
+        let mut state = AppState::new();
+        let mut anime = dummy_anime(1);
+        anime.status = Some("RELEASING".into());
+        state.open_detail(anime.clone());
+        let old_request = state.episode_request;
+        state.open_detail(anime);
+        let current_request = state.episode_request;
+        state.resume_when_ready = true;
+        assert!(!state.apply_episode_result(1, old_request, None));
+        assert!(state.episodes_loading);
+        assert!(state.resume_when_ready);
+        assert!(state.apply_episode_result(1, current_request, Some(2)));
+        assert_eq!(state.episode_list, vec![1,2]);
+        assert!(!state.apply_episode_result(1, old_request, Some(12)));
+        assert_eq!(state.episode_list, vec![1,2]);
+    }
+
+    #[test]
+    fn planned_episodes_are_not_selectable_or_restored_from_total() {
+        let mut state = AppState::new();
+        let mut anime = dummy_anime(1);
+        anime.status = Some("RELEASING".into());
+        state.open_detail(anime);
+        assert!(state.episode_list.is_empty());
+        assert_eq!(state.selected_episode, None);
+        assert!(state.episodes_loading);
+        state.set_watched_episodes([1].into_iter().collect());
+        assert_eq!(state.selected_episode, None);
+        state.set_episode_count(Some(2));
+        assert_eq!(state.episode_list, vec![1,2]);
+        assert_eq!(state.selected_episode, Some(2));
+        state.push_detail_snapshot();
+        state.open_detail(dummy_anime(2));
+        assert!(state.restore_previous_detail());
+        assert_eq!(state.episode_list, vec![1,2]);
+        assert_eq!(state.selected_episode, Some(2));
+    }
+
+    #[test]
+    fn unreleased_and_unknown_counts_do_not_fabricate_episode_one() {
+        let mut state = AppState::new();
+        let mut anime = dummy_anime(1);
+        anime.status = Some("NOT_YET_RELEASED".into());
+        state.open_detail(anime);
+        assert_eq!(state.episode_count, Some(0));
+        assert_eq!(state.selected_episode, None);
+        state.set_episode_count(None);
+        assert!(state.episode_list.is_empty());
+        assert!(!state.episodes_loading);
+        state.set_episode_count(Some(0));
+        assert_eq!(state.selected_episode, None);
     }
 
     #[test]
