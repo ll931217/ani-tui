@@ -90,6 +90,8 @@ pub struct AppState {
 
     /// Detail screen: episode list scroll offset
     pub episode_offset:   usize,
+    pub episode_columns: usize,
+    pub episode_rows: usize,
 
     /// Search overlay: current input text
     pub search_query:     String,
@@ -204,6 +206,8 @@ impl AppState {
             episode_list:     Vec::new(),
             selected_episode: None,
             episode_offset:   0,
+            episode_columns: 1,
+            episode_rows: 1,
             search_query:     String::new(),
             search_results:   Vec::new(),
             search_cursor:    0,
@@ -362,8 +366,30 @@ impl AppState {
         self.watched_episodes = watched;
         let next = self.next_unwatched_episode();
         self.selected_episode = Some(next);
-        let pills_per_row = 10usize;
-        self.episode_offset = next.saturating_sub(1) as usize / pills_per_row * pills_per_row;
+        self.episode_offset = 0;
+        self.update_episode_viewport(self.episode_columns, self.episode_rows);
+    }
+
+    /// Synchronize navigation and scrolling with the rendered episode grid.
+    pub fn update_episode_viewport(&mut self, columns: usize, rows: usize) {
+        let top_row = self.episode_offset / self.episode_columns.max(1);
+        self.episode_columns = columns.max(1);
+        self.episode_rows = rows.max(1);
+        let selected = self.episode_list.iter().position(|ep| Some(*ep) == self.selected_episode).unwrap_or(0);
+        let row = selected / self.episode_columns;
+        let top = top_row.min(row).max(row.saturating_sub(self.episode_rows - 1));
+        self.episode_offset = top * self.episode_columns;
+    }
+
+    /// Move one item horizontally or one visible grid row vertically.
+    pub fn move_episode(&mut self, horizontal: isize, vertical: isize) {
+        let Some(index) = self.episode_list.iter().position(|ep| Some(*ep) == self.selected_episode) else { return };
+        let columns = self.episode_columns.max(1);
+        let row = index / columns;
+        if (vertical < 0 && row == 0) || (vertical > 0 && row + 1 >= self.episode_list.len().div_ceil(columns)) { return; }
+        let target = index.saturating_add_signed(horizontal + vertical * columns as isize).min(self.episode_list.len() - 1);
+        self.selected_episode = Some(self.episode_list[target]);
+        self.update_episode_viewport(columns, self.episode_rows);
     }
 
     /// Return the next unwatched episode, defaulting to 1 when all known episodes are watched.
@@ -536,6 +562,42 @@ mod tests {
             has_dub:       0,
             updated_at:    0,
         }
+    }
+
+    #[test]
+    fn episode_grid_moves_by_actual_columns_and_scrolls_only_at_edges() {
+        let mut state = AppState::new();
+        state.episode_list = (1..=170).collect();
+        state.selected_episode = Some(2);
+        state.update_episode_viewport(29, 2);
+        state.move_episode(0, -1);
+        assert_eq!(state.selected_episode, Some(2));
+        state.move_episode(0, 1);
+        assert_eq!(state.selected_episode, Some(31));
+        assert_eq!(state.episode_offset, 0);
+        state.move_episode(0, 1);
+        assert_eq!(state.selected_episode, Some(60));
+        assert_eq!(state.episode_offset, 29);
+        state.move_episode(-1, 0);
+        assert_eq!(state.selected_episode, Some(59));
+        state.update_episode_viewport(10, 2);
+        assert_eq!(state.episode_offset, 40);
+    }
+
+    #[test]
+    fn episode_grid_handles_partial_final_rows_and_nonsequential_numbers() {
+        let mut state = AppState::new();
+        state.episode_list = vec![1, 3, 5, 7, 9];
+        state.selected_episode = Some(5);
+        state.update_episode_viewport(3, 2);
+        state.move_episode(0, 1);
+        assert_eq!(state.selected_episode, Some(9));
+        state.move_episode(0, 1);
+        assert_eq!(state.selected_episode, Some(9));
+        state.move_episode(1, 0);
+        assert_eq!(state.selected_episode, Some(9));
+        state.move_episode(0, -1);
+        assert_eq!(state.selected_episode, Some(3));
     }
 
     #[test]

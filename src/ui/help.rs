@@ -19,8 +19,8 @@ pub fn render_overlay(frame: &mut Frame) {
         (
             "Navigation",
             vec![
-                ("j / ↓", "Move down (rows / menus)"),
-                ("k / ↑", "Move up (rows / menus)"),
+                ("j / ↓", "Move down (collections / episodes / menus)"),
+                ("k / ↑", "Move up (collections / episodes / menus)"),
                 ("h / ←", "Scroll left (cards / episodes / related)"),
                 ("l / →", "Scroll right (cards / episodes / related)"),
                 ("Tab", "Toggle Detail focus: Episodes / More Like This"),

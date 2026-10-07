@@ -38,7 +38,7 @@ pub fn render(frame: &mut Frame, state: &mut AppState, posters: &mut PosterCache
         Span::raw(" play    "),
         Span::styled("+", Style::default().fg(theme::ACCENT)),
         Span::raw(" watchlist    "),
-        Span::styled("h/l", Style::default().fg(theme::ACCENT)),
+        Span::styled("Arrows", Style::default().fg(theme::ACCENT)),
         Span::raw(" episode    "),
         Span::styled("Tab", Style::default().fg(theme::ACCENT)),
         Span::raw(" related    "),
@@ -205,7 +205,7 @@ fn render_metadata(frame: &mut Frame, area: Rect, state: &AppState, anime: &Anim
         Span::raw("  "),
         Span::styled(
             watchlist_label,
-            Style::default().fg(theme::TEXT).bg(theme::PANEL),
+            Style::default().fg(theme::TEXT).bg(theme::SURFACE),
         ),
     ]));
 
@@ -301,7 +301,7 @@ fn render_related(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// Episode list section — horizontal scrolling pills.
-fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState) {
+fn render_episodes(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let block = theme::panel("Episodes");
 
     let inner = block.inner(area);
@@ -317,6 +317,7 @@ fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState) {
     // Calculate how many pills fit per row
     let pill_width: u16 = 6; // " E99 "
     let pills_per_row = (inner.width / pill_width).max(1) as usize;
+    state.update_episode_viewport(pills_per_row, inner.height.saturating_sub(1) as usize);
     let selected_ep = state.selected_episode.unwrap_or(1);
 
     // Render rows of episode pills
@@ -350,7 +351,7 @@ fn render_episodes(frame: &mut Frame, area: Rect, state: &AppState) {
                 // Dimmed to show the episode is already watched
                 Style::default().fg(theme::SUCCESS).bg(theme::SURFACE)
             } else {
-                Style::default().fg(theme::TEXT).bg(theme::PANEL)
+                Style::default().fg(theme::TEXT).bg(theme::SURFACE)
             };
 
             let pill = Paragraph::new(Span::styled(label, style)).style(style);

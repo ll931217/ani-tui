@@ -634,18 +634,7 @@ async fn handle_detail(
         // Episode navigation
         KeyCode::Char('l') | KeyCode::Right => {
             match state.detail_focus {
-                state::DetailFocus::Episodes => {
-                    if let Some(ep) = state.selected_episode {
-                        let max           = state.episode_list.last().copied().unwrap_or(1);
-                        let pills_per_row = 10usize;
-                        if ep < max {
-                            state.selected_episode = Some(ep + 1);
-                            if ep as usize >= state.episode_offset + pills_per_row {
-                                state.episode_offset += pills_per_row;
-                            }
-                        }
-                    }
-                }
+                state::DetailFocus::Episodes => state.move_episode(1, 0),
                 state::DetailFocus::Related => {
                     if state.detail_related_cursor + 1 < state.detail_recommendations.len() {
                         state.detail_related_cursor += 1;
@@ -659,17 +648,7 @@ async fn handle_detail(
         }
         KeyCode::Char('h') | KeyCode::Left => {
             match state.detail_focus {
-                state::DetailFocus::Episodes => {
-                    if let Some(ep) = state.selected_episode {
-                        let pills_per_row = 10usize;
-                        if ep > 1 {
-                            state.selected_episode = Some(ep - 1);
-                            if (ep as usize).saturating_sub(1) < state.episode_offset {
-                                state.episode_offset = state.episode_offset.saturating_sub(pills_per_row);
-                            }
-                        }
-                    }
-                }
+                state::DetailFocus::Episodes => state.move_episode(-1, 0),
                 state::DetailFocus::Related => {
                     if state.detail_related_cursor > 0 {
                         state.detail_related_cursor -= 1;
@@ -679,6 +658,13 @@ async fn handle_detail(
                     }
                 }
             }
+        }
+
+        KeyCode::Char('j') | KeyCode::Down => {
+            if state.detail_focus == state::DetailFocus::Episodes { state.move_episode(0, 1); }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if state.detail_focus == state::DetailFocus::Episodes { state.move_episode(0, -1); }
         }
 
         // Play
