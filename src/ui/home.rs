@@ -436,7 +436,7 @@ fn render_row(
                 None
             };
             let progress = progress_labels.get(&anime.id).map(String::as_str);
-            render_card(frame, rect, anime, is_active && i == 0, reason, progress, state);
+            render_card(frame, rect, anime, is_active && i == 0, reason, progress);
         }
     }
 }
@@ -450,7 +450,6 @@ fn render_card(
     selected: bool,
     reason: Option<&str>,
     progress: Option<&str>,
-    _state: &mut AppState,
 ) {
     if area.height < 3 {
         return;
